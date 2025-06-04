@@ -1,4 +1,5 @@
 #from morl_baselines.multi_policy.moq_learning import MOQLearning
+import envs
 import mo_gymnasium as mo_gymnasium
 from morl_baselines.multi_policy.pareto_q_learning.pql import PQL
 from wrappers.discretized_wrapper import DiscretizerWrapper
@@ -9,7 +10,7 @@ import time
 num_envs = 4
 
 GAMMA = 0.9
-TOTAL_TIMESTEPS = 15_000
+TOTAL_TIMESTEPS = 5_000
 EVAL_FREQ = 500
 
 if __name__ == "__main__":

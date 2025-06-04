@@ -36,7 +36,7 @@ DEFAULT_NUM_EPISODE_STEPS = 250
 MIN_DELAY = 1  # corresponds to 1ms
 MAX_DELAY = 1000  # corresponds to 1000ms
 
-class KarmadaSchedulingEnvMultiV2(gym.Env):
+class KarmadaSchedulingEnvMulti(gym.Env):
     def __init__(self, num_clusters=DEFAULT_NUM_CLUSTERS,
                  arrival_rate_r=DEFAULT_ARRIVAL_RATE,
                  call_duration_r=DEFAULT_CALL_DURATION,
@@ -44,7 +44,7 @@ class KarmadaSchedulingEnvMultiV2(gym.Env):
                  min_replicas=MIN_REPLICAS,
                  max_replicas=MAX_REPLICAS,):
         # Define action and observation space
-        super(KarmadaSchedulingEnvMultiV2, self).__init__()
+        super(KarmadaSchedulingEnvMulti, self).__init__()
 
         self.current_step = 0
         self.current_time = 0
