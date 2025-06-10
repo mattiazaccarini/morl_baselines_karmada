@@ -178,9 +178,11 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.info = {}
 
         # return obs
-        return np.array(self.get_state())
-        #state = self.get_state()
-        #return tuple(state.flatten()), {}
+        #print('Resetting environment...')
+        #print(f'State: {np.array(self.get_state())}')
+        #return np.array(self.get_state()), {}
+        state = self.get_state()
+        return tuple(state.flatten()), {}
 
     def step(self, action):
         if self.current_step == 1:
@@ -196,6 +198,9 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         # Update observation
         ob = self.get_state()
+        #print(f"State: {ob}")
+        #print(f"Shape: {ob.shape}")
+        #print(f"Type: {ob.dtype}")
 
         if self.current_step == self.episode_length:
             self.episode_count += 1
@@ -205,11 +210,11 @@ class KarmadaSchedulingEnvMulti(gym.Env):
             gini = calculate_gini_coefficient(self.avg_load_served)
 
         
-        return np.array(ob), reward, self.episode_over, False, self.info
+        #return np.array(ob), reward, self.episode_over, False, self.info
         
         # Use these lines with MOQLearning
-        #obs = self.get_state()
-        #return tuple(obs.flatten()), reward, self.episode_over, False, {}
+        obs = self.get_state()
+        return tuple(obs.flatten()), reward, self.episode_over, False, {}
 
     # Apply the action taken by the agent
     def take_action(self, action):
