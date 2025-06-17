@@ -619,7 +619,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         :param load: CPU load
         :return: interpolated power consumption
         """
-        print(f"Interpolating power consumption for load: {load}")
+        #print(f"Interpolating power consumption for load: {load}")
         if load < 10:
             return self.power_consumption_data.loc[self.power_consumption_data.index.min(), node_type]
         elif load > 100:
@@ -643,7 +643,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
             # convert CPU to a scalar value in the scale from 10 to 100
             cpu = cpu * 100
             node_consumption = self.interpolate_power_consumption(cpu)
-            print(f"Node {0} CPU: {cpu}, Power Consumption: {node_consumption}")
+            #print(f"Node {0} CPU: {cpu}, Power Consumption: {node_consumption}")
             power_consumption += cpu * node_consumption  # Assuming cost is power consumption per CPU unit
         return power_consumption
 
