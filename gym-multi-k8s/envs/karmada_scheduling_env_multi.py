@@ -4,6 +4,7 @@ import math
 import time
 import heapq
 from gymnasium import spaces
+import pandas as pd
 
 from statistics import mean
 from envs.utils import DeploymentRequest, get_c2e_deployment_list, calculate_gini_coefficient, sort_dict_by_value
@@ -21,6 +22,8 @@ FFD = 0  # First Fit Deployment
 
 NUM_METRICS_CLUSTER = 4
 NUM_METRICS_REQUEST = 4
+
+DEFAULT_NODE_TYPE = "vWall"
 
 # Cluster types
 NUM_CLUSTER_TYPES = 5  # edge_tier_1, edge_tier_2, fog_tier_1, fog_tier_2, cloud
@@ -118,12 +121,19 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.default_cluster_types = DEFAULT_CLUSTER_TYPES
         self.cluster_types = [0] * num_clusters  # Initialize with default cluster types
 
+        # Read the power consumption data from CSV file
+        self.power_consumption_data = self.read_power_consumption()
+
         #Info and utilized for Gini coefficient calculation
         self.avg_load_served = np.zeros(num_clusters, dtype=np.float32)
 
         # Keep track of allocated resources
         self.allocated_cpu = self.np_random.uniform(low=0.0, high=0.2, size=num_clusters).astype(np.float32)
         self.allocated_memory = self.np_random.uniform(low=0.0, high=0.2, size=num_clusters).astype(np.float32)
+        
+        # Keep track of the total power consumption assuming that each node is of the same type
+        self.power_consumption = self.calculate_power_consumption()
+
         # Keep track of free resources for deployment requests
         self.free_cpu = np.zeros(num_clusters, dtype=np.float32)
         self.free_memory = np.zeros(num_clusters, dtype=np.float32)
@@ -167,6 +177,8 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.allocated_cpu = self.np_random.uniform(low=0.0, high=0.2, size=self.num_clusters).astype(np.float32)
         self.allocated_memory = self.np_random.uniform(low=0.0, high=0.2, size=self.num_clusters).astype(np.float32)
 
+        self.power_consumption = self.calculate_power_consumption()
+
         # Variables for spreading strategies
         self.split_number_replicas = np.zeros(self.num_clusters, dtype=np.int32)  # Number of replicas per cluster
 
@@ -189,7 +201,12 @@ class KarmadaSchedulingEnvMulti(gym.Env):
             self.time_start = time.time()
 
         self.offered_requests += 1
+        
+        # TODO: Keep track of the power consumption here and pass to get_reward() only the increment or decrement
+        current_power_consumption = self.power_consumption
         self.take_action(action)
+        # update the power consumption after taking the action
+        self.power_consumption = self.calculate_power_consumption()
 
         reward = self.get_reward()
 
@@ -341,6 +358,9 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         
         latency_reward = lat # Minimize latency
         cost_reward = cost # Minimize cost
+
+        # Power consumption reward, for now is just inverse of the power consumption
+        power_consumption_reward = 1.0 / (self.power_consumption + 1e-6)  # Avoid division by zero
 
         # Compute Gini coefficient reward
         gini = calculate_gini_coefficient(self.avg_load_served)
@@ -572,6 +592,67 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         return observation
         
-
+    def read_power_consumption(self, filename='./gym-multi-k8s/envs/kepler_power_consumption.csv'):
+        """
+        Read power consumption from a file. We are using a CSV file with the following format:
+        load,vWall,eCluster
+        10,25,20
+        20,35,35
+        30,50,50
+        where load is the CPU load, and vWall and eCluster are two different nodes type.
+        """
+        data = pd.read_csv(filename)
+        data = data.set_index('load')
+        return data
     
+    def interpolate_power_consumption(self, load, node_type='vWall'):
+        """
+        Interpolate power consumption based on the load.
+        vWall and eCluster are two different values for power conumption
+        load is a number between the one listed in the table, e.g.:
+        load,vWall,eCluster
+        10,25,20
+        20,35,35
+        30,50,50
+        Given a load of 15, it will return the interpolated values for vWall and eCluster.
+        If the load is below the minimum or above the maximum, it will return the values for the closest load.
+        :param load: CPU load
+        :return: interpolated power consumption
+        """
+        print(f"Interpolating power consumption for load: {load}")
+        if load < 10:
+            return self.power_consumption_data.loc[self.power_consumption_data.index.min(), node_type]
+        elif load > 100:
+            return self.power_consumption_data.loc[self.power_consumption_data.index.max(), node_type]
+        else:
+            # Interpolate the values for vWall and eCluster
+            if node_type == 'eCluster':
+                return np.interp(load, self.power_consumption_data.index, self.power_consumption_data['eCluster'])
+            else:
+                # Default to vWall if no specific node type is provided
+                return np.interp(load, self.power_consumption_data.index, self.power_consumption_data['vWall'])
+            
+    def calculate_power_consumption(self):
+        """ 
+        Calculate the power consumption based on the current load of the clusters.
+        TODO: Let's add a cluster type parameter here, so we can discriminate 
+        between two tier of resources, e.g. vWall and eCluster.
+        """
+        power_consumption = 0.0
+        for cpu in self.allocated_cpu:
+            # convert CPU to a scalar value in the scale from 10 to 100
+            cpu = cpu * 100
+            node_consumption = self.interpolate_power_consumption(cpu)
+            print(f"Node {0} CPU: {cpu}, Power Consumption: {node_consumption}")
+            power_consumption += cpu * node_consumption  # Assuming cost is power consumption per CPU unit
+        return power_consumption
 
+    def calculate_incremental_power_consumption(self, cpu, node_type='vWall'):
+        """
+        Calculate the incremental power consumption based on the current load of the clusters.
+        :param cpu: CPU load
+        :param node_type: Node type (vWall or eCluster)
+        :return: incremental power consumption
+        """
+        old_power_consumption = self.power_consumption
+        return self.calculate_power_consumption() - old_power_consumption
