@@ -155,8 +155,10 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
     def reset(self, seed, **kwargs):
         # Reset the environment state and return the initial observation
+        print('Resetting environment...')
         self.current_step = 0
         self.penalty = False
+        self.episode_over = False
         self.avg_cpu_usage_percentage_cluster_selected = []
 
         for n1 in range(self.num_clusters):
@@ -184,9 +186,6 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         # Keep track of spreading actions
         self.deploy_ffd = 0  # First Fit Deployment
-
-        terminated = False
-        truncated = False
         self.info = {}
 
         # return obs
@@ -207,6 +206,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.take_action(action)
         # update the power consumption after taking the action
         self.power_consumption = self.calculate_power_consumption()
+        print(f"Power consumption changed from {current_power_consumption} to {self.power_consumption}")
 
         reward = self.get_reward()
 
@@ -236,6 +236,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
     # Apply the action taken by the agent
     def take_action(self, action):
         self.current_step += 1
+        print(f"Action taken: {action} at step {self.current_step}")
         # Stop if MAX_STEPS
         if self.current_step == self.episode_length:
             self.episode_over = True
@@ -592,7 +593,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         return observation
         
-    def read_power_consumption(self, filename='./gym-multi-k8s/envs/kepler_power_consumption.csv'):
+    def read_power_consumption(self, filename='./gym-multi-k8s/envs/kepler_power_consumption.csv'): 
         """
         Read power consumption from a file. We are using a CSV file with the following format:
         load,vWall,eCluster
