@@ -97,7 +97,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         
         self.action_space = spaces.Discrete(self.num_actions)
 
-        self.reward_dim = 3  # Latency, Cost, Gini
+        self.reward_dim = 4  # Latency, Cost, Gini, Power Consumption
         low = np.array([-np.inf] * self.reward_dim, dtype=np.float32)
         high = np.array([np.inf] * self.reward_dim, dtype=np.float32)
 
@@ -171,6 +171,15 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
     def reset(self, seed, **kwargs):
         # Reset the environment state and return the initial observation
         # print('Resetting environment...')
+        # Try logging the power consumption to wandb
+        if self.total_power_consumption and self.total_power_consumption > 0:
+            # Log the total power consumption and the power consumption for each cluster
+            wandb.log({
+                "total_power_consumption": self.total_power_consumption,
+                # log also the power consumption for each cluster
+                **{f"cluster_{i}_power": v for i, v in enumerate(self.cluster_power_consumption)}
+            })
+        
         self.current_step = 0
         self.penalty = False
         self.episode_over = False
@@ -222,14 +231,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         # update the power consumption after taking the action
         self.calculate_power_consumption()
         #print(f"Power consumption changed from {current_power_consumption} to {self.total_power_consumption} after action {action}")
-        # Try logging the power consumption to wandb
-        wandb.log({
-            "total_power_consumption": self.total_power_consumption,
-            "step": self.current_step,
-            # log also the power consumption for each cluster
-            **{f"cluster_{i}_power": v for i, v in enumerate(self.cluster_power_consumption)}
-        })
-        
+
         reward = self.get_reward()
 
         # Get next request
@@ -355,6 +357,9 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
 
     def get_reward(self):
+        # Power consumption reward, for now is just inverse of the power consumption
+        power_consumption_reward = 1.0 / (self.total_power_consumption + 1e-6)  # Avoid division by zero
+
         if self.penalty:
             # Penalization of 5% for each value
             last_latency = self.avg_latency[-1] if self.avg_latency else 500.0  # valore di default
@@ -363,7 +368,8 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
             penalized_reward = np.array([
                 last_latency * 1.05,
                 last_cost * 1.05,
-                last_gini * 0.95
+                last_gini * 0.95,
+                power_consumption_reward * 1.05
             ], dtype=np.float32)
             return penalized_reward
 
@@ -380,17 +386,17 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
             cost = self.deployment_request.expected_cost
         
         latency_reward = lat # Minimize latency
+        latency_reward = 1 / (latency_reward + 1e-6)  # Avoid division by zero
         cost_reward = cost # Minimize cost
-
-        # Power consumption reward, for now is just inverse of the power consumption
-        power_consumption_reward = 1.0 / (self.total_power_consumption + 1e-6)  # Avoid division by zero
+        cost_reward = 1 / (cost + 1e-6)  # Avoid division by zero
 
         # Compute Gini coefficient reward
         gini = calculate_gini_coefficient(self.avg_load_served)
         gini_reward = gini
+        gini_reward = 1 - gini  # Minimize Gini coefficient, so we want it to be as low as possible
 
         #Return reward as a vector as required by the multi-objective environment
-        return np.array([latency_reward, cost_reward, gini_reward], dtype=np.float32)
+        return np.array([latency_reward, cost_reward, gini_reward, power_consumption_reward], dtype=np.float32)
 
 
     def render(self, mode='human'):

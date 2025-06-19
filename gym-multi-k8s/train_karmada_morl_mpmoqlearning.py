@@ -13,10 +13,12 @@ TOTAL_TIMESTEPS = 150000
 EVAL_FREQ = 500
 
 if __name__ == "__main__":
-    env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4, min_replicas=1, max_replicas=16)
-    eval_env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4, min_replicas=1, max_replicas=16)
+    env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4,
+                             min_replicas=1, max_replicas=16)
+    eval_env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4,
+                                  min_replicas=1, max_replicas=16)
     
-    scalarization = tchebicheff(tau=4.0, reward_dim=3)
+    scalarization = tchebicheff(tau=4.0, reward_dim=4)
 
     agent = MPMOQLearning(
         env,
@@ -36,5 +38,5 @@ if __name__ == "__main__":
         timesteps_per_iteration=15000, 
         eval_freq=100,
         eval_env=eval_env,
-        ref_point=np.array([600, 10, 0.9]),
+        ref_point=np.array([600, 10, 0.9, 150]),
     )
