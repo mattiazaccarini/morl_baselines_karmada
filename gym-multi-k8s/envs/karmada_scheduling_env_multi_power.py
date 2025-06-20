@@ -8,7 +8,7 @@ import pandas as pd
 import wandb
 
 from statistics import mean
-from envs.utils import DeploymentRequest, get_c2e_deployment_list, get_5gcore_deployment_list, calculate_gini_coefficient, sort_dict_by_value, save_to_csv_multiv1
+from envs.utils import DeploymentRequest, get_5gcore_deployment_list, calculate_gini_coefficient, sort_dict_by_value, save_to_csv_multiv1
 
 MAX_REPLICAS = 8
 MIN_REPLICAS = 1
