@@ -1,0 +1,5 @@
+# Avoid pushing the pyc files to the repository
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+**pyc
