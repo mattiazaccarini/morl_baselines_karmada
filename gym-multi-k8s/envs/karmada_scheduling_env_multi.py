@@ -130,9 +130,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
             self.latency[n1] = mean(self.latency_matrix[n1])
 
-        self.default_cluster_types = DEFAULT_CLUSTER_TYPES
-        self.cluster_types = [0] * num_clusters  # Initialize with default cluster types
-
+        
         # Read the power consumption data from CSV file
         #self.power_consumption_data = self.read_power_consumption()
 

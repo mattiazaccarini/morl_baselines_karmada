@@ -8,7 +8,7 @@ import pandas as pd
 import wandb
 
 from statistics import mean
-from envs.utils import DeploymentRequest, get_c2e_deployment_list, calculate_gini_coefficient, sort_dict_by_value
+from envs.utils import DeploymentRequest, get_c2e_deployment_list, calculate_gini_coefficient, sort_dict_by_value, save_to_csv_multi
 
 MAX_REPLICAS = 8
 MIN_REPLICAS = 1
@@ -21,6 +21,7 @@ DEFAULT_CALL_DURATION = 1
 NUM_SPREADING_ACTIONS = 1
 FFD = 0  # First Fit Deployment
 
+DEFAULT_FILE_NAME_RESULTS = "karmada_gym_results"
 NUM_METRICS_CLUSTER = 4
 NUM_METRICS_REQUEST = 4
 
@@ -58,7 +59,9 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
                  call_duration_r=DEFAULT_CALL_DURATION,
                  episode_length=DEFAULT_NUM_EPISODE_STEPS,
                  min_replicas=MIN_REPLICAS,
-                 max_replicas=MAX_REPLICAS,):
+                 max_replicas=MAX_REPLICAS,
+                 file_results_name=DEFAULT_FILE_NAME_RESULTS,
+                 is_eval_env=False):
         # Define action and observation space
         super(KarmadaSchedulingEnvMultiPower, self).__init__()
 
@@ -159,6 +162,8 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         # Keep track of deployment actions
         self.deploy_ffd = 0  # First Fit Deployment
 
+        self.file_results = file_results_name + ".csv"
+        self.is_eval_env = is_eval_env
         self.accepted_requests = 0
         self.ep_accepted_requests = 0
         self.deploy_all = 0
@@ -249,6 +254,25 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
             self.execution_time = time.time() - self.time_start
 
             gini = calculate_gini_coefficient(self.avg_load_served)
+
+            if self.is_eval_env:
+                save_to_csv_multi(self.file_results, self.episode_count,
+                    self.ep_accepted_requests,
+                    self.episode_length - self.ep_accepted_requests,
+                    float(np.mean(self.avg_latency)) if self.avg_latency else float(MAX_DELAY),
+                    float(np.mean(self.avg_cost))    if self.avg_cost    else float(MAX_COST),
+                    float(np.mean(self.avg_cpu_usage_percentage_cluster_selected)) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
+                    gini,
+                    self.execution_time)
+            else:
+                save_to_csv_multi(self.file_results, self.episode_count,
+                    self.ep_accepted_requests,
+                    self.episode_length - self.ep_accepted_requests,
+                    float(np.mean(self.avg_latency)) if self.avg_latency else float(MAX_DELAY),
+                    float(np.mean(self.avg_cost))    if self.avg_cost    else float(MAX_COST),
+                    float(np.mean(self.avg_cpu_usage_percentage_cluster_selected)) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
+                    gini,
+                    self.execution_time)
 
         
         #return np.array(ob), reward, self.episode_over, False, self.info
