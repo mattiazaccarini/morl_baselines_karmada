@@ -8,10 +8,12 @@ import pandas as pd
 import wandb
 
 from statistics import mean
-from envs.utils import DeploymentRequest, get_c2e_deployment_list, calculate_gini_coefficient, sort_dict_by_value, save_to_csv_multi
+from envs.utils import DeploymentRequest, get_c2e_deployment_list, get_5gcore_deployment_list, calculate_gini_coefficient, sort_dict_by_value, save_to_csv_multiv1
 
 MAX_REPLICAS = 8
 MIN_REPLICAS = 1
+
+MAX_COST = 72 
 
 DEFAULT_NUM_CLUSTERS = 4
 DEFAULT_ARRIVAL_RATE = 100
@@ -29,12 +31,6 @@ DEFAULT_NODE_TYPE = "vWall"
 
 # Cluster types
 NUM_CLUSTER_TYPES = 5  # edge_tier_1, edge_tier_2, fog_tier_1, fog_tier_2, cloud
-
-OLD_CLUSTER_TYPES = [{"type": "edge_tier_1", "cpu": 2.0, "mem": 2.0, "cost": 1},
-                         {"type": "edge_tier_2", "cpu": 2.0, "mem": 4.0, "cost": 2},
-                         {"type": "fog_tier_1", "cpu": 2.0, "mem": 8.0, "cost": 4},
-                         {"type": "fog_tier_2", "cpu": 4.0, "mem": 16.0, "cost": 8},
-                         {"type": "cloud", "cpu": 8.0, "mem": 32.0, "cost": 16}]
 
 # TODO: Check cost values for the clusters, which are greater than the one used for FGCS
 # The reported values for CPU and Memory are the real ones, there is no much difference between the CPU values
@@ -108,7 +104,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         self.info = {}
         
         # Setting the experiment based on Cloud2Edge (C2E) deployments
-        self.deploymentList = get_c2e_deployment_list()
+        self.deploymentList = get_5gcore_deployment_list()
         self.deployment_request = None
 
         # Cluster type initialization, resource capacities based on cluster types
@@ -162,7 +158,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         # Keep track of deployment actions
         self.deploy_ffd = 0  # First Fit Deployment
 
-        self.file_results = file_results_name + ".csv"
+        self.file_results = file_results_name + "_" + str(time.time()) + ".csv"
         self.is_eval_env = is_eval_env
         self.accepted_requests = 0
         self.ep_accepted_requests = 0
@@ -182,7 +178,9 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
             wandb.log({
                 "total_power_consumption": self.total_power_consumption,
                 # log also the power consumption for each cluster
-                **{f"cluster_{i}_power": v for i, v in enumerate(self.cluster_power_consumption)}
+                **{f"cluster_{i}_{DEFAULT_CLUSTER_TYPES[self.cluster_type[i]]['device']}_power": v for i, v in enumerate(self.cluster_power_consumption)},
+                "accepted_requests": self.accepted_requests,
+                "average_cpu_usage": np.mean(self.avg_cpu_usage_percentage_cluster_selected) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
             })
         
         self.current_step = 0
@@ -244,9 +242,6 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
         # Update observation
         ob = self.get_state()
-        #print(f"State: {ob}")
-        #print(f"Shape: {ob.shape}")
-        #print(f"Type: {ob.dtype}")
 
         if self.current_step == self.episode_length:
             self.episode_count += 1
@@ -256,24 +251,25 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
             gini = calculate_gini_coefficient(self.avg_load_served)
 
             if self.is_eval_env:
-                save_to_csv_multi(self.file_results, self.episode_count,
+                save_to_csv_multiv1(self.file_results, self.episode_count,
                     self.ep_accepted_requests,
                     self.episode_length - self.ep_accepted_requests,
                     float(np.mean(self.avg_latency)) if self.avg_latency else float(MAX_DELAY),
                     float(np.mean(self.avg_cost))    if self.avg_cost    else float(MAX_COST),
                     float(np.mean(self.avg_cpu_usage_percentage_cluster_selected)) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
                     gini,
+                    self.total_power_consumption,
                     self.execution_time)
             else:
-                save_to_csv_multi(self.file_results, self.episode_count,
+                save_to_csv_multiv1(self.file_results, self.episode_count,
                     self.ep_accepted_requests,
                     self.episode_length - self.ep_accepted_requests,
                     float(np.mean(self.avg_latency)) if self.avg_latency else float(MAX_DELAY),
                     float(np.mean(self.avg_cost))    if self.avg_cost    else float(MAX_COST),
                     float(np.mean(self.avg_cpu_usage_percentage_cluster_selected)) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
                     gini,
+                    self.total_power_consumption,
                     self.execution_time)
-
         
         #return np.array(ob), reward, self.episode_over, False, self.info
         

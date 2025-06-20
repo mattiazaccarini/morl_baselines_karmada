@@ -54,6 +54,82 @@ def set_box_color(bp, color):
     plt.setp(bp['caps'], color=color)
     plt.setp(bp['medians'], color=color)
 
+def get_5gcore_deployment_list():
+    deployment_list = [
+    DeploymentRequest(name="nrf", num_replicas=1,
+                      cpu_request=0.1, cpu_limit=0.5,
+                      memory_request=0.1, memory_limit=0.3,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=450),
+
+    DeploymentRequest(name="amf", num_replicas=1,
+                      cpu_request=0.3, cpu_limit=1.0,
+                      memory_request=0.3, memory_limit=0.5,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=350),
+
+    DeploymentRequest(name="smf", num_replicas=1,
+                      cpu_request=0.4, cpu_limit=1.2,
+                      memory_request=0.4, memory_limit=0.6,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=350),
+
+    DeploymentRequest(name="upf", num_replicas=1,
+                      cpu_request=0.6, cpu_limit=2.0,
+                      memory_request=0.5, memory_limit=1.0,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=200),
+
+    DeploymentRequest(name="pcf", num_replicas=1,
+                      cpu_request=0.2, cpu_limit=0.5,
+                      memory_request=0.2, memory_limit=0.4,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=450),
+
+    DeploymentRequest(name="udm", num_replicas=1,
+                      cpu_request=0.2, cpu_limit=0.5,
+                      memory_request=0.2, memory_limit=0.3,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=450),
+
+    DeploymentRequest(name="ausf", num_replicas=1,
+                      cpu_request=0.2, cpu_limit=0.5,
+                      memory_request=0.1, memory_limit=0.2,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=400),
+
+    DeploymentRequest(name="nssf", num_replicas=1,
+                      cpu_request=0.1, cpu_limit=0.3,
+                      memory_request=0.1, memory_limit=0.2,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=500),
+
+    DeploymentRequest(name="udr", num_replicas=1,
+                      cpu_request=0.2, cpu_limit=0.4,
+                      memory_request=0.2, memory_limit=0.3,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=450),
+
+    DeploymentRequest(name="bsf", num_replicas=1,
+                      cpu_request=0.1, cpu_limit=0.3,
+                      memory_request=0.1, memory_limit=0.2,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=500),
+
+    DeploymentRequest(name="mongodb", num_replicas=1,
+                      cpu_request=0.2, cpu_limit=1.0,
+                      memory_request=0.5, memory_limit=1.0,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=500),
+
+    DeploymentRequest(name="webui", num_replicas=1,
+                      cpu_request=0.1, cpu_limit=0.3,
+                      memory_request=0.1, memory_limit=0.3,
+                      arrival_time=0, departure_time=0,
+                      latency_threshold=600),
+    ]
+    return deployment_list
+
 def get_c2e_deployment_list():
     deployment_list = [
         # 1 adapter-amqp
@@ -335,6 +411,33 @@ def save_to_csv_multi(file_name, episode, ep_accepted_requests, ep_rejected_requ
         #     'execution_time': float("{:.2f}".format(execution_time))}
         #)
 
+
+def save_to_csv_multiv1(file_name, episode, ep_accepted_requests, ep_rejected_requests, avg_latency,
+                avg_cost, avg_cpu_cluster_selected, gini, power_consumption, execution_time):
+    
+    file = open(file_name, 'a+', newline='')
+    with file:
+        fields = ['episode', 'ep_accepted', 'ep_rejected',
+                  'avg_latency', 'avg_cost', 'avg_cpu', 'gini', 'power_consumption', 'exec_time']
+
+        writer = csv.DictWriter(file, fieldnames=fields)
+        
+        writer.writerow(
+                {'episode': episode,
+                'ep_accepted': float("{:.2f}".format(ep_accepted_requests)),
+                'ep_rejected': float("{:.2f}".format(ep_rejected_requests)),
+                'avg_latency': float("{:.2f}".format(avg_latency)),
+                'avg_cost': float("{:.2f}".format(avg_cost)),
+                'avg_cpu': float("{:.2f}".format(avg_cpu_cluster_selected)),
+                'gini': float("{:.2f}".format(gini)),
+                'power_consumption': float("{:.2f}".format(power_consumption)),
+                'exec_time': float("{:.2f}".format(execution_time))}
+        )
+
+        #     'avg_cpu_cluster_selected': float("{:.2f}".format(avg_cpu_cluster_selected)),
+        #     'gini': float("{:.2f}".format(gini)),
+        #     'execution_time': float("{:.2f}".format(execution_time))}
+        #)
 
 def normalize(value, min_value, max_value):
     if max_value == min_value:
