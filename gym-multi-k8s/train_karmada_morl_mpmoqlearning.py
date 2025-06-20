@@ -14,10 +14,14 @@ EVAL_FREQ = 500
 
 if __name__ == "__main__":
     env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4,
-                             min_replicas=1, max_replicas=16)
+                             min_replicas=1, max_replicas=16, 
+                             file_results_name="karmada_gym_4components_results",
+                             is_eval_env=False,)
     eval_env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4,
-                                  min_replicas=1, max_replicas=16)
-    
+                                  min_replicas=1, max_replicas=16,
+                                  file_results_name="karmada_gym_4components_results",
+                                  is_eval_env=True)
+
     scalarization = tchebicheff(tau=4.0, reward_dim=4)
 
     agent = MPMOQLearning(

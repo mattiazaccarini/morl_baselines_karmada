@@ -23,7 +23,7 @@ DEFAULT_CALL_DURATION = 1
 NUM_SPREADING_ACTIONS = 1
 FFD = 0  # First Fit Deployment
 
-DEFAULT_FILE_NAME_RESULTS = "karmada_gym_results"
+DEFAULT_FILE_NAME_RESULTS = "karmada_gym_4_components_results"
 NUM_METRICS_CLUSTER = 4
 NUM_METRICS_REQUEST = 4
 
@@ -180,6 +180,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
                 # log also the power consumption for each cluster
                 **{f"cluster_{i}_{DEFAULT_CLUSTER_TYPES[self.cluster_type[i]]['device']}_power": v for i, v in enumerate(self.cluster_power_consumption)},
                 "accepted_requests": self.accepted_requests,
+                "rejected_requests": self.episode_length - self.ep_accepted_requests,
                 "average_cpu_usage": np.mean(self.avg_cpu_usage_percentage_cluster_selected) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
             })
         
@@ -198,7 +199,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
             self.latency[n1] = mean(self.latency_matrix[n1])
 
         # Reset Deployment Data
-        self.deploymentList = get_c2e_deployment_list()
+        self.deploymentList = get_5gcore_deployment_list()
 
         self.avg_load_served = np.zeros(self.num_clusters, dtype=np.float32)
 
@@ -447,7 +448,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         return False
     
     def deployment_generator(self):
-        deployment_list = get_c2e_deployment_list()
+        deployment_list = get_5gcore_deployment_list()
         n = self.np_random.integers(low=0, high=len(deployment_list))
         d = deployment_list[n - 1]
 
