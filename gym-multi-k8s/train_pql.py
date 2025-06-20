@@ -10,18 +10,19 @@ import os, pickle, wandb
 import numpy as np
 import time
 
-num_envs = 4
-
 GAMMA = 0.99
 TOTAL_TIMESTEPS = 10000
 EVAL_FREQ = 500
 
 if __name__ == "__main__":
-    env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, max_replicas=16, file_results_name="karmada_gym_multi_train_results", is_eval_env=False)
+    env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, 
+                            min_replicas=1, max_replicas=16, 
+                            file_results_name="karmada_gym_multi_train_results", is_eval_env=False)
     env = DiscretizerWrapper(env, n_bins=8) # Not required for MOQLearning
     ref_point = np.array([600, 10, 0.9])
 
-    eval_env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, max_replicas=16, file_results_name="karmada_gym_multi_eval_results", is_eval_env=True)
+    eval_env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, 
+                                 max_replicas=16, file_results_name="karmada_gym_multi_eval_results", is_eval_env=True)
     eval_env = DiscretizerWrapper(eval_env, n_bins=8)
 
     #os.makedirs("checkpoints", exist_ok=True)
