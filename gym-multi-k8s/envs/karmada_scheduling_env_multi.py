@@ -1,3 +1,4 @@
+import csv
 import numpy as np
 import gymnasium as gym
 import math
@@ -7,7 +8,10 @@ from gymnasium import spaces
 import pandas as pd
 
 from statistics import mean
-from envs.utils import DeploymentRequest, get_c2e_deployment_list, calculate_gini_coefficient, sort_dict_by_value
+from envs.utils import DeploymentRequest, get_c2e_deployment_list, calculate_gini_coefficient, sort_dict_by_value, \
+    normalize, save_to_csv_multi
+
+DEFAULT_FILE_NAME_RESULTS = "karmada_gym_multi_train_results"
 
 MAX_REPLICAS = 8
 MIN_REPLICAS = 1
@@ -39,13 +43,21 @@ DEFAULT_NUM_EPISODE_STEPS = 250
 MIN_DELAY = 1  # corresponds to 1ms
 MAX_DELAY = 1000  # corresponds to 1000ms
 
+MAX_COST = 16 
+MIN_COST = 1
+
+MIN_GINI = 0.0
+MAX_GINI = 1.0  # Gini coefficient ranges from 0 to 1
+
 class KarmadaSchedulingEnvMulti(gym.Env):
     def __init__(self, num_clusters=DEFAULT_NUM_CLUSTERS,
                  arrival_rate_r=DEFAULT_ARRIVAL_RATE,
                  call_duration_r=DEFAULT_CALL_DURATION,
                  episode_length=DEFAULT_NUM_EPISODE_STEPS,
                  min_replicas=MIN_REPLICAS,
-                 max_replicas=MAX_REPLICAS,):
+                 max_replicas=MAX_REPLICAS,
+                 file_results_name=DEFAULT_FILE_NAME_RESULTS,
+                 is_eval_env=False):
         # Define action and observation space
         super(KarmadaSchedulingEnvMulti, self).__init__()
 
@@ -122,7 +134,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.cluster_types = [0] * num_clusters  # Initialize with default cluster types
 
         # Read the power consumption data from CSV file
-        self.power_consumption_data = self.read_power_consumption()
+        #self.power_consumption_data = self.read_power_consumption()
 
         #Info and utilized for Gini coefficient calculation
         self.avg_load_served = np.zeros(num_clusters, dtype=np.float32)
@@ -132,7 +144,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.allocated_memory = self.np_random.uniform(low=0.0, high=0.2, size=num_clusters).astype(np.float32)
         
         # Keep track of the total power consumption assuming that each node is of the same type
-        self.power_consumption = self.calculate_power_consumption()
+        #self.power_consumption = self.calculate_power_consumption()
 
         # Keep track of free resources for deployment requests
         self.free_cpu = np.zeros(num_clusters, dtype=np.float32)
@@ -144,6 +156,8 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         # Keep track of deployment actions
         self.deploy_ffd = 0  # First Fit Deployment
 
+        self.file_results = file_results_name + ".csv"
+        self.is_eval_env = is_eval_env
         self.accepted_requests = 0
         self.ep_accepted_requests = 0
         self.deploy_all = 0
@@ -159,6 +173,8 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.current_step = 0
         self.penalty = False
         self.episode_over = False
+        self.avg_latency = []
+        self.avg_cost = []
         self.avg_cpu_usage_percentage_cluster_selected = []
 
         for n1 in range(self.num_clusters):
@@ -179,7 +195,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.allocated_cpu = self.np_random.uniform(low=0.0, high=0.2, size=self.num_clusters).astype(np.float32)
         self.allocated_memory = self.np_random.uniform(low=0.0, high=0.2, size=self.num_clusters).astype(np.float32)
 
-        self.power_consumption = self.calculate_power_consumption()
+        #self.power_consumption = self.calculate_power_consumption()
 
         # Variables for spreading strategies
         self.split_number_replicas = np.zeros(self.num_clusters, dtype=np.int32)  # Number of replicas per cluster
@@ -191,9 +207,9 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         # return obs
         #print('Resetting environment...')
         #print(f'State: {np.array(self.get_state())}')
-        #return np.array(self.get_state()), {}
-        state = self.get_state()
-        return tuple(state.flatten()), {}
+        return np.array(self.get_state()), {}
+        #state = self.get_state()
+        #return tuple(state.flatten()), {}
 
     def step(self, action):
         if self.current_step == 1:
@@ -202,11 +218,11 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.offered_requests += 1
         
         # TODO: Keep track of the power consumption here and pass to get_reward() only the increment or decrement
-        current_power_consumption = self.power_consumption
+        #current_power_consumption = self.power_consumption
         self.take_action(action)
         # update the power consumption after taking the action
-        self.power_consumption = self.calculate_power_consumption()
-        print(f"Power consumption changed from {current_power_consumption} to {self.power_consumption}")
+        #self.power_consumption = self.calculate_power_consumption()
+        #print(f"Power consumption changed from {current_power_consumption} to {self.power_consumption}")
 
         reward = self.get_reward()
 
@@ -215,23 +231,41 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         # Update observation
         ob = self.get_state()
-        #print(f"State: {ob}")
-        #print(f"Shape: {ob.shape}")
-        #print(f"Type: {ob.dtype}")
+
 
         if self.current_step == self.episode_length:
             self.episode_count += 1
             self.episode_over = True
             self.execution_time = time.time() - self.time_start
 
+
             gini = calculate_gini_coefficient(self.avg_load_served)
 
+            if self.is_eval_env:
+                save_to_csv_multi(self.file_results, self.episode_count,
+                    self.ep_accepted_requests,
+                    self.episode_length - self.ep_accepted_requests,
+                    float(np.mean(self.avg_latency)) if self.avg_latency else float(MAX_DELAY),
+                    float(np.mean(self.avg_cost))    if self.avg_cost    else float(MAX_COST),
+                    float(np.mean(self.avg_cpu_usage_percentage_cluster_selected)) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
+                    gini,
+                    self.execution_time)
+            else:
+                save_to_csv_multi(self.file_results, self.episode_count,
+                    self.ep_accepted_requests,
+                    self.episode_length - self.ep_accepted_requests,
+                    float(np.mean(self.avg_latency)) if self.avg_latency else float(MAX_DELAY),
+                    float(np.mean(self.avg_cost))    if self.avg_cost    else float(MAX_COST),
+                    float(np.mean(self.avg_cpu_usage_percentage_cluster_selected)) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
+                    gini,
+                    self.execution_time)
+
         
-        #return np.array(ob), reward, self.episode_over, False, self.info
+        return np.array(ob), reward, self.episode_over, False, self.info
         
         # Use these lines with MOQLearning
-        obs = self.get_state()
-        return tuple(obs.flatten()), reward, self.episode_over, False, {}
+        #obs = self.get_state()
+        #return tuple(obs.flatten()), reward, self.episode_over, False, {}
 
     # Apply the action taken by the agent
     def take_action(self, action):
@@ -239,6 +273,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         print(f"Action taken: {action} at step {self.current_step}")
         # Stop if MAX_STEPS
         if self.current_step == self.episode_length:
+            print(f"Episode over at step {self.current_step} --> stopping the environment.")
             self.episode_over = True
         
         if action < self.num_clusters: # Deploy to a specific cluster
@@ -274,7 +309,6 @@ class KarmadaSchedulingEnvMulti(gym.Env):
                 self.deployment_request.expected_latency = self.latency[action]
                 self.deployment_request.expected_cost = DEFAULT_CLUSTER_TYPES[type_id]['cost']
         elif action == self.num_clusters + FFD: # First Fit Deployment Spreading Strategy
-            #print('Action taken: First Fit Deployment Spreading Strategy')
             if self.deployment_request.num_replicas == 1:
                 self.penalty = True # Cannot spread a single replica
             else:
@@ -335,13 +369,13 @@ class KarmadaSchedulingEnvMulti(gym.Env):
     def get_reward(self):
         if self.penalty:
             # Penalization of 5% for each value
-            last_latency = self.avg_latency[-1] if self.avg_latency else 500.0  # valore di default
+            last_latency = self.avg_latency[-1] if self.avg_latency else 500.0  # default value
             last_cost = self.avg_cost[-1] if self.avg_cost else 100.0
             last_gini = calculate_gini_coefficient(self.avg_load_served)
             penalized_reward = np.array([
-                last_latency * 1.05,
-                last_cost * 1.05,
-                last_gini * 0.95
+                normalize(last_latency * 1.05, MIN_DELAY, MAX_DELAY),
+                normalize(last_cost * 1.05, MIN_COST, MAX_COST),
+                normalize(last_gini * 0.95, MIN_GINI, MAX_GINI)
             ], dtype=np.float32)
             return penalized_reward
 
@@ -357,19 +391,19 @@ class KarmadaSchedulingEnvMulti(gym.Env):
             lat = self.deployment_request.expected_latency
             cost = self.deployment_request.expected_cost
         
-        latency_reward = lat # Minimize latency
-        cost_reward = cost # Minimize cost
+        lat_reward = 1/lat # Minimize latency
+        cost_reward = 1/cost # Minimize cost
 
         # Power consumption reward, for now is just inverse of the power consumption
-        power_consumption_reward = 1.0 / (self.power_consumption + 1e-6)  # Avoid division by zero
+        #power_consumption_reward = 1.0 / (self.power_consumption + 1e-6)  # Avoid division by zero
 
         # Compute Gini coefficient reward
         gini = calculate_gini_coefficient(self.avg_load_served)
-        gini_reward = gini
+        
 
         #Return reward as a vector as required by the multi-objective environment
-        return np.array([latency_reward, cost_reward, gini_reward], dtype=np.float32)
-
+        #return np.array([latency_reward, cost_reward, gini_reward], dtype=np.float32)
+        return np.array([lat_reward, cost_reward, 1- gini], dtype=np.float32)  #1 - gini to avoid dividing by zero
 
     def render(self, mode='human'):
         # Render the environment to the screen or return a visual representation
@@ -393,7 +427,6 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
             if (self.allocated_cpu[d] + total_cpu > 0.95 * self.cpu_capacity[d]
                     or self.allocated_memory[d] + total_memory > 0.95 * self.memory_capacity[d]):
-                #logging.info('[Check]: Cluster {} is full...'.format(d))
                 return True
 
         return False
@@ -593,67 +626,67 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         return observation
         
-    def read_power_consumption(self, filename='./gym-multi-k8s/envs/kepler_power_consumption.csv'): 
-        """
-        Read power consumption from a file. We are using a CSV file with the following format:
-        load,vWall,eCluster
-        10,25,20
-        20,35,35
-        30,50,50
-        where load is the CPU load, and vWall and eCluster are two different nodes type.
-        """
-        data = pd.read_csv(filename)
-        data = data.set_index('load')
-        return data
-    
-    def interpolate_power_consumption(self, load, node_type='vWall'):
-        """
-        Interpolate power consumption based on the load.
-        vWall and eCluster are two different values for power conumption
-        load is a number between the one listed in the table, e.g.:
-        load,vWall,eCluster
-        10,25,20
-        20,35,35
-        30,50,50
-        Given a load of 15, it will return the interpolated values for vWall and eCluster.
-        If the load is below the minimum or above the maximum, it will return the values for the closest load.
-        :param load: CPU load
-        :return: interpolated power consumption
-        """
-        #print(f"Interpolating power consumption for load: {load}")
-        if load < 10:
-            return self.power_consumption_data.loc[self.power_consumption_data.index.min(), node_type]
-        elif load > 100:
-            return self.power_consumption_data.loc[self.power_consumption_data.index.max(), node_type]
-        else:
-            # Interpolate the values for vWall and eCluster
-            if node_type == 'eCluster':
-                return np.interp(load, self.power_consumption_data.index, self.power_consumption_data['eCluster'])
-            else:
-                # Default to vWall if no specific node type is provided
-                return np.interp(load, self.power_consumption_data.index, self.power_consumption_data['vWall'])
-            
-    def calculate_power_consumption(self):
-        """ 
-        Calculate the power consumption based on the current load of the clusters.
-        TODO: Let's add a cluster type parameter here, so we can discriminate 
-        between two tier of resources, e.g. vWall and eCluster.
-        """
-        power_consumption = 0.0
-        for cpu in self.allocated_cpu:
-            # convert CPU to a scalar value in the scale from 10 to 100
-            cpu = cpu * 100
-            node_consumption = self.interpolate_power_consumption(cpu)
-            #print(f"Node {0} CPU: {cpu}, Power Consumption: {node_consumption}")
-            power_consumption += cpu * node_consumption  # Assuming cost is power consumption per CPU unit
-        return power_consumption
-
-    def calculate_incremental_power_consumption(self, cpu, node_type='vWall'):
-        """
-        Calculate the incremental power consumption based on the current load of the clusters.
-        :param cpu: CPU load
-        :param node_type: Node type (vWall or eCluster)
-        :return: incremental power consumption
-        """
-        old_power_consumption = self.power_consumption
-        return self.calculate_power_consumption() - old_power_consumption
+    #def read_power_consumption(self, filename='./envs/kepler_power_consumption.csv'): #./gym-multi-k8s/envs/
+    #    """
+    #    Read power consumption from a file. We are using a CSV file with the following format:
+    #    load,vWall,eCluster
+    #    10,25,20
+    #    20,35,35
+    #    30,50,50
+    #    where load is the CPU load, and vWall and eCluster are two different nodes type.
+    #    """
+    #    data = pd.read_csv(filename)
+    #    data = data.set_index('load')
+    #    return data
+    #
+    #def interpolate_power_consumption(self, load, node_type='vWall'):
+    #    """
+    #    Interpolate power consumption based on the load.
+    #    vWall and eCluster are two different values for power conumption
+    #    load is a number between the one listed in the table, e.g.:
+    #    load,vWall,eCluster
+    #    10,25,20
+    #    20,35,35
+    #    30,50,50
+    #    Given a load of 15, it will return the interpolated values for vWall and eCluster.
+    #    If the load is below the minimum or above the maximum, it will return the values for the closest load.
+    #    :param load: CPU load
+    #    :return: interpolated power consumption
+    #    """
+    #    #print(f"Interpolating power consumption for load: {load}")
+    #    if load < 10:
+    #        return self.power_consumption_data.loc[self.power_consumption_data.index.min(), node_type]
+    #    elif load > 100:
+    #        return self.power_consumption_data.loc[self.power_consumption_data.index.max(), node_type]
+    #    else:
+    #        # Interpolate the values for vWall and eCluster
+    #        if node_type == 'eCluster':
+    #            return np.interp(load, self.power_consumption_data.index, self.power_consumption_data['eCluster'])
+    #        else:
+    #            # Default to vWall if no specific node type is provided
+    #            return np.interp(load, self.power_consumption_data.index, self.power_consumption_data['vWall'])
+    #        
+    #def calculate_power_consumption(self):
+    #    """ 
+    #    Calculate the power consumption based on the current load of the clusters.
+    #    TODO: Let's add a cluster type parameter here, so we can discriminate 
+    #    between two tier of resources, e.g. vWall and eCluster.
+    #    """
+    #    power_consumption = 0.0
+    #    for cpu in self.allocated_cpu:
+    #        # convert CPU to a scalar value in the scale from 10 to 100
+    #        cpu = cpu * 100
+    #        node_consumption = self.interpolate_power_consumption(cpu)
+    #        #print(f"Node {0} CPU: {cpu}, Power Consumption: {node_consumption}")
+    #        power_consumption += cpu * node_consumption  # Assuming cost is power consumption per CPU unit
+    #    return power_consumption
+#
+    #def calculate_incremental_power_consumption(self, cpu, node_type='vWall'):
+    #    """
+    #    Calculate the incremental power consumption based on the current load of the clusters.
+    #    :param cpu: CPU load
+    #    :param node_type: Node type (vWall or eCluster)
+    #    :return: incremental power consumption
+    #    """
+    #    old_power_consumption = self.power_consumption
+    #    return self.calculate_power_consumption() - old_power_consumption

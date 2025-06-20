@@ -309,35 +309,31 @@ def save_to_csv(file_name, episode, reward, ep_block_prob, ep_accepted_requests,
              'execution_time': float("{:.2f}".format(execution_time))}
         )
 
-def save_to_csv_multi(file_name, policy_id, reward_latency, reward_cost, reward_gini,
-                ep_block_prob, ep_accepted_requests, ep_rejected_requests,
-                deploy_all, deploy_ffd, deploy_ffi, deploy_bf1b1,
-                avg_latency, avg_cost, avg_cpu, gini, execution_time):
+def save_to_csv_multi(file_name, episode, ep_accepted_requests, ep_rejected_requests, avg_latency,
+                avg_cost, avg_cpu_cluster_selected, gini, execution_time):
     
-    filename = f"{file_name}_policy_{policy_id}.csv"
+    file = open(file_name, 'a+', newline='')
+    with file:
+        fields = ['episode', 'ep_accepted', 'ep_rejected',
+                  'avg_latency', 'avg_cost', 'avg_cpu', 'gini', 'exec_time']
+        
+        writer = csv.DictWriter(file, fieldnames=fields)
+        
+        writer.writerow(
+                {'episode': episode,
+                'ep_accepted': float("{:.2f}".format(ep_accepted_requests)),
+                'ep_rejected': float("{:.2f}".format(ep_rejected_requests)),
+                'avg_latency': float("{:.2f}".format(avg_latency)),
+                'avg_cost': float("{:.2f}".format(avg_cost)),
+                'avg_cpu': float("{:.2f}".format(avg_cpu_cluster_selected)),
+                'gini': float("{:.2f}".format(gini)),
+                'exec_time': float("{:.2f}".format(execution_time))}
+        )
 
-    fields = ['policy_id', 'reward_latency', 'reward_cost', 'reward_gini',
-              'ep_block_prob', 'ep_accepted', 'ep_rejected',
-              'deploy_all', 'deploy_ffd', 'deploy_ffi', 'deploy_bf1b1',
-              'avg_latency', 'avg_cost', 'avg_cpu', 'gini', 'exec_time']
-
-    row = [policy_id, reward_latency, reward_cost, reward_gini,
-           ep_block_prob, ep_accepted_requests, ep_rejected_requests,
-           deploy_all, deploy_ffd, deploy_ffi, deploy_bf1b1,
-           avg_latency, avg_cost, avg_cpu, gini, execution_time]
-    
-    file_exists = False
-    try:
-        with open(filename, 'r'):
-            file_exists = True
-    except FileNotFoundError:
-        pass
-
-    with open(filename, 'a', newline='') as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(fields)
-        writer.writerow(row)
+        #     'avg_cpu_cluster_selected': float("{:.2f}".format(avg_cpu_cluster_selected)),
+        #     'gini': float("{:.2f}".format(gini)),
+        #     'execution_time': float("{:.2f}".format(execution_time))}
+        #)
 
 
 def normalize(value, min_value, max_value):
