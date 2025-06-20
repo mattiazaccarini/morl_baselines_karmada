@@ -8,12 +8,17 @@ import pandas as pd
 import wandb
 
 from statistics import mean
-from envs.utils import DeploymentRequest, get_5gcore_deployment_list, calculate_gini_coefficient, sort_dict_by_value, save_to_csv_multiv1
+from envs.utils import DeploymentRequest, get_5gcore_deployment_list, calculate_gini_coefficient
+from envs.utils import sort_dict_by_value, save_to_csv_multiv1, normalize
 
 MAX_REPLICAS = 8
 MIN_REPLICAS = 1
 
+MIN_COST = 2
 MAX_COST = 72 
+
+MIN_GINI = 0.0
+MAX_GINI = 1.0  # Gini coefficient ranges from 0 to 1
 
 DEFAULT_NUM_CLUSTERS = 4
 DEFAULT_ARRIVAL_RATE = 100
@@ -179,7 +184,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
                 "total_power_consumption": self.total_power_consumption,
                 # log also the power consumption for each cluster
                 **{f"cluster_{i}_{DEFAULT_CLUSTER_TYPES[self.cluster_type[i]]['device']}_power": v for i, v in enumerate(self.cluster_power_consumption)},
-                "accepted_requests": self.accepted_requests,
+                "accepted_requests": self.ep_accepted_requests,
                 "rejected_requests": self.episode_length - self.ep_accepted_requests,
                 "average_cpu_usage": np.mean(self.avg_cpu_usage_percentage_cluster_selected) if self.avg_cpu_usage_percentage_cluster_selected else 0.0,
             })
@@ -188,6 +193,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         self.penalty = False
         self.episode_over = False
         self.avg_cpu_usage_percentage_cluster_selected = []
+        self.ep_accepted_requests = 0
 
         for n1 in range(self.num_clusters):
             for n2 in range(self.num_clusters):
@@ -283,6 +289,9 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         self.current_step += 1
         #print(f"Action taken: {action} at step {self.current_step}")
         # Stop if MAX_STEPS
+        if action > self.num_clusters:
+            print(f"Action {action} is not valid, it should be less than {self.num_clusters + NUM_SPREADING_ACTIONS}")
+
         if self.current_step == self.episode_length:
             self.episode_over = True
         
@@ -378,18 +387,20 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
 
     def get_reward(self):
+
         # Power consumption reward, for now is just inverse of the power consumption
-        power_consumption_reward = 1.0 / (self.total_power_consumption + 1e-6)  # Avoid division by zero
+        # Avoid division by zero
+        power_consumption_reward = 1.0 / (self.total_power_consumption + 1e-6)  
 
         if self.penalty:
             # Penalization of 5% for each value
-            last_latency = self.avg_latency[-1] if self.avg_latency else 500.0  # valore di default
+            last_latency = self.avg_latency[-1] if self.avg_latency else 500.0  # default value
             last_cost = self.avg_cost[-1] if self.avg_cost else 100.0
             last_gini = calculate_gini_coefficient(self.avg_load_served)
             penalized_reward = np.array([
-                last_latency * 1.05,
-                last_cost * 1.05,
-                last_gini * 0.95,
+                (1 - normalize(last_latency * 1.05, MIN_DELAY, MAX_DELAY)),
+                (1 - normalize(last_cost * 1.05, MIN_COST, MAX_COST)),
+                (1 - normalize(last_gini * 0.95, MIN_GINI, MAX_GINI)),
                 power_consumption_reward * 1.05
             ], dtype=np.float32)
             return penalized_reward
@@ -407,14 +418,13 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
             cost = self.deployment_request.expected_cost
         
         latency_reward = lat # Minimize latency
-        latency_reward = 1 / (latency_reward + 1e-6)  # Avoid division by zero
-        cost_reward = cost # Minimize cost
-        cost_reward = 1 / (cost + 1e-6)  # Avoid division by zero
+        latency_reward = 1 - normalize(latency_reward, MIN_DELAY, MAX_DELAY)  # Avoid division by zero
+        cost_reward = 1 - normalize(cost, MIN_COST, MAX_COST)  # Minimize cost
 
         # Compute Gini coefficient reward
         gini = calculate_gini_coefficient(self.avg_load_served)
         gini_reward = gini
-        gini_reward = 1 - gini  # Minimize Gini coefficient, so we want it to be as low as possible
+        gini_reward = 1 - normalize(gini_reward, MIN_GINI, MAX_GINI)  # Normalize Gini coefficient
 
         #Return reward as a vector as required by the multi-objective environment
         return np.array([latency_reward, cost_reward, gini_reward, power_consumption_reward], dtype=np.float32)

@@ -19,7 +19,7 @@ if __name__ == "__main__":
                              is_eval_env=False,)
     eval_env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4,
                                   min_replicas=1, max_replicas=16,
-                                  file_results_name="karmada_gym_4components_results",
+                                  file_results_name="karmada_gym_4components_results_eval",
                                   is_eval_env=True)
 
     scalarization = tchebicheff(tau=4.0, reward_dim=4)
@@ -42,5 +42,5 @@ if __name__ == "__main__":
         timesteps_per_iteration=15000, 
         eval_freq=100,
         eval_env=eval_env,
-        ref_point=np.array([600, 10, 0.9, 150]),
+        ref_point=np.array([1, 1, 0.9, 1]),
     )

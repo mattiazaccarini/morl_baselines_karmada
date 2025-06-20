@@ -174,6 +174,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.avg_latency = []
         self.avg_cost = []
         self.avg_cpu_usage_percentage_cluster_selected = []
+        self.ep_accepted_requests = 0
 
         for n1 in range(self.num_clusters):
             for n2 in range(self.num_clusters):
@@ -365,15 +366,16 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
 
     def get_reward(self):
+
         if self.penalty:
             # Penalization of 5% for each value
             last_latency = self.avg_latency[-1] if self.avg_latency else 500.0  # default value
             last_cost = self.avg_cost[-1] if self.avg_cost else 100.0
             last_gini = calculate_gini_coefficient(self.avg_load_served)
             penalized_reward = np.array([
-                normalize(last_latency * 1.05, MIN_DELAY, MAX_DELAY),
-                normalize(last_cost * 1.05, MIN_COST, MAX_COST),
-                normalize(last_gini * 0.95, MIN_GINI, MAX_GINI)
+                1- normalize(last_latency * 1.05, MIN_DELAY, MAX_DELAY),
+                1 - normalize(last_cost * 1.05, MIN_COST, MAX_COST),
+                1 - normalize(last_gini * 0.95, MIN_GINI, MAX_GINI)
             ], dtype=np.float32)
             return penalized_reward
 
@@ -388,20 +390,21 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         else:
             lat = self.deployment_request.expected_latency
             cost = self.deployment_request.expected_cost
-        
-        lat_reward = 1/lat # Minimize latency
-        cost_reward = 1/cost # Minimize cost
+
+        lat_reward = 1 - normalize(lat, MIN_DELAY, MAX_DELAY)  # Minimize latency
+        cost_reward = 1 - normalize(cost, MIN_COST, MAX_COST)  # Minimize cost
 
         # Power consumption reward, for now is just inverse of the power consumption
         #power_consumption_reward = 1.0 / (self.power_consumption + 1e-6)  # Avoid division by zero
 
         # Compute Gini coefficient reward
         gini = calculate_gini_coefficient(self.avg_load_served)
+        gini = 1 - normalize(gini, MIN_GINI, MAX_GINI)  # Minimize Gini coefficient
         
 
         #Return reward as a vector as required by the multi-objective environment
         #return np.array([latency_reward, cost_reward, gini_reward], dtype=np.float32)
-        return np.array([lat_reward, cost_reward, 1- gini], dtype=np.float32)  #1 - gini to avoid dividing by zero
+        return np.array([lat_reward, cost_reward, gini], dtype=np.float32)  #1 - gini to avoid dividing by zero
 
     def render(self, mode='human'):
         # Render the environment to the screen or return a visual representation
