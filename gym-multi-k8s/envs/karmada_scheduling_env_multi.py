@@ -21,8 +21,10 @@ DEFAULT_ARRIVAL_RATE = 100
 DEFAULT_CALL_DURATION = 1
 
 # Spreading strategies
-NUM_SPREADING_ACTIONS = 1
+NUM_SPREADING_ACTIONS = 3
 FFD = 0  # First Fit Deployment
+FFI = 1
+BF1B1 = 2
 
 NUM_METRICS_CLUSTER = 4
 NUM_METRICS_REQUEST = 4
@@ -31,11 +33,12 @@ DEFAULT_NODE_TYPE = "vWall"
 
 # Cluster types
 NUM_CLUSTER_TYPES = 5  # edge_tier_1, edge_tier_2, fog_tier_1, fog_tier_2, cloud
-DEFAULT_CLUSTER_TYPES = [{"type": "edge_tier_1", "cpu": 2.0, "mem": 2.0, "cost": 1},
-                         {"type": "edge_tier_2", "cpu": 2.0, "mem": 4.0, "cost": 2},
-                         {"type": "fog_tier_1", "cpu": 2.0, "mem": 8.0, "cost": 4},
-                         {"type": "fog_tier_2", "cpu": 4.0, "mem": 16.0, "cost": 8},
-                         {"type": "cloud", "cpu": 8.0, "mem": 32.0, "cost": 16}]
+DEFAULT_CLUSTER_TYPES =  [{"type": "edge_tier_1", "cpu": 4.0, "mem": 1.0, "cost": 2.0, "device": "raspi3"}, # Raspi3
+                         {"type": "edge_tier_2", "cpu": 4.0, "mem": 4.0, "cost": 4.0, "device": "raspi4"}, # Raspi4
+                         {"type": "fog_tier_1", "cpu": 4.0, "mem": 16.0, "cost": 16.0, "device": "shuttle"}, # Shuttle
+                         {"type": "fog_tier_2", "cpu": 4.0, "mem": 16.0, "cost": 32.0, "device": "intel_nuc"}, # Intel NUC
+                         {"type": "cloud", "cpu": 8.0, "mem": 48.0, "cost": 64, "device": "vwall"}, # vwall
+                         {"type": "cloud", "cpu": 8.0, "mem": 64.0, "cost": 72, "device": "ecluster"}] # eCluster
 
 DEFAULT_NUM_EPISODE_STEPS = 250
 
@@ -153,7 +156,9 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         # Keep track of deployment actions
         self.deploy_ffd = 0  # First Fit Deployment
-
+        self.deploy_ffi = 0
+        self.deploy_bf1b1 = 0
+        
         self.file_results = file_results_name + ".csv"
         self.is_eval_env = is_eval_env
         self.accepted_requests = 0
@@ -224,6 +229,22 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         #print(f"Power consumption changed from {current_power_consumption} to {self.power_consumption}")
 
         reward = self.get_reward()
+
+        #Consider this code in case of logging the action taken
+        '''
+        # Find correct action move for logging purposes
+        move = ""
+        if action < self.num_clusters:
+            move = ACTIONS[0] + "cluster-" + str(action + 1)
+        elif self.num_clusters <= action < self.num_clusters + NUM_SPREADING_ACTIONS:
+            move = ACTIONS[1]
+        else:
+            move = ACTIONS[2]
+
+        # Logging Step and Total Reward
+        logging.info('[Step {}] | Action: {} | Reward: {} | Total Reward: {}'.format(
+            self.current_step, move, reward, self.total_reward))
+        '''
 
         # Get next request
         self.next_request()
@@ -363,7 +384,155 @@ class KarmadaSchedulingEnvMulti(gym.Env):
                     self.deployment_request.expected_cost = avg_c
 
                     self.enqueue_request(self.deployment_request)
+        # FFI decreasing strategy
+        elif action == self.num_clusters + FFI:
+            if self.deployment_request.num_replicas == 1:
+                #logging.info('[Take Action] Block FFI strategy since only one replica... ')
+                self.penalty = True
+            else:
+                #logging.info('[Take Action] Divide FFI chosen... ')
+                print(f"[Take Action] Divide FFI chosen")
+                div = self.first_fit_decreasing_heuristic(self.deployment_request.num_replicas,
+                                                          self.deployment_request.cpu_request,
+                                                          self.deployment_request.memory_request,
+                                                          self.num_clusters,
+                                                          self.free_cpu, self.free_memory)
 
+                if self.check_if_clusters_are_full_after_split_deployment(div):
+                    self.penalty = True
+                    #logging.info('[Take Action] Block the FFI strategy since cluster will be full!')
+                else:
+                    # accept request
+                    self.penalty = False
+                    self.accepted_requests += 1
+                    self.ep_accepted_requests += 1
+                    self.deploy_ffi += 1
+                    self.deployment_request.split_clusters = div
+                    self.deployment_request.is_deployment_split = True
+
+                    avg_l = 0
+                    avg_c = 0
+                    avg_cpu = 0
+                    clusters = 0
+                    for d in range(len(div)):
+                        # Update allocated amounts
+                        self.allocated_cpu[d] += self.deployment_request.cpu_request * div[d]
+                        self.allocated_memory[d] += self.deployment_request.memory_request * div[d]
+                        avg_cpu += 100 * (self.allocated_cpu[d] / self.cpu_capacity[d])
+                        # Update free resources
+                        self.free_cpu[d] = self.cpu_capacity[d] - self.allocated_cpu[d]
+                        self.free_memory[d] = self.memory_capacity[d] - self.allocated_memory[d]
+
+                        # Latency updates
+                        avg_l += self.latency[d] * div[d]
+                        self.increase_latency(d, 1.05)  # 5% increase max for split
+
+                        # Cost Updates
+                        type_id = int(self.cluster_type[d])
+                        avg_c += DEFAULT_CLUSTER_TYPES[type_id]['cost'] * div[d]
+
+                        # Load updates
+                        self.avg_load_served[d] += div[d]
+
+                    avg_l = avg_l / self.deployment_request.num_replicas
+                    avg_c = avg_c / self.deployment_request.num_replicas
+                    avg_cpu = avg_cpu / self.deployment_request.num_replicas
+
+                    self.avg_latency.append(avg_l)
+                    self.avg_cost.append(avg_c)
+                    self.avg_cpu_usage_percentage_cluster_selected.append(avg_cpu)
+
+                    # Save expected latency and cost in deployment request
+                    self.deployment_request.expected_latency = avg_l
+                    self.deployment_request.expected_cost = avg_c
+
+                    # logging.info("[Divide] After")
+                    # logging.info("[Divide] CPU allocated: {}".format(self.allocated_cpu))
+                    # logging.info("[Divide] CPU free: {}".format(self.free_cpu))
+
+                    # logging.info("[Divide] MEM allocated: {}".format(self.allocated_memory))
+                    # logging.info("[Divide] MEM free: {}".format(self.free_memory))
+                    self.enqueue_request(self.deployment_request)
+        # BF1B1 spreading strategy
+        elif action == self.num_clusters + BF1B1:
+            if self.deployment_request.num_replicas == 1:
+                #logging.info('[Take Action] Block BF1B1 strategy since only one replica... ')
+                self.penalty = True
+            else:
+                #logging.info('[Take Action] BF1B1 chosen... ')
+                print(f"[Take Action] BF1B1 chosen")
+                div = self.best_fit_heuristic_one_by_one(self.deployment_request.num_replicas,
+                                                         self.deployment_request.cpu_request,
+                                                         self.deployment_request.memory_request,
+                                                         self.num_clusters,
+                                                         self.free_cpu, self.free_memory)
+
+                if self.check_if_clusters_are_full_after_split_deployment(div):
+                    self.penalty = True
+                    #logging.info('[Take Action] Block the BF1B1 strategy since cluster will be full!')
+                else:
+                    # accept request
+                    self.penalty = False
+                    self.accepted_requests += 1
+                    self.ep_accepted_requests += 1
+                    self.deploy_bf1b1 += 1
+                    self.deployment_request.split_clusters = div
+                    self.deployment_request.is_deployment_split = True
+
+                    # logging.info("[Divide] Before")
+                    # logging.info("[Divide] CPU allocated: {}".format(self.allocated_cpu))
+                    # logging.info("[Divide] CPU free: {}".format(self.free_cpu))
+                    # logging.info("[Divide] MEM allocated: {}".format(self.allocated_memory))
+                    # logging.info("[Divide] MEM free: {}".format(self.free_memory))
+
+                    avg_l = 0
+                    avg_c = 0
+                    avg_cpu = 0
+                    clusters = 0
+                    for d in range(len(div)):
+                        # Update allocated amounts
+                        self.allocated_cpu[d] += self.deployment_request.cpu_request * div[d]
+                        self.allocated_memory[d] += self.deployment_request.memory_request * div[d]
+                        avg_cpu += 100 * (self.allocated_cpu[d] / self.cpu_capacity[d])
+                        # Update free resources
+                        self.free_cpu[d] = self.cpu_capacity[d] - self.allocated_cpu[d]
+                        self.free_memory[d] = self.memory_capacity[d] - self.allocated_memory[d]
+
+                        # Latency updates
+                        avg_l += self.latency[d] * div[d]
+                        self.increase_latency(d, 1.05)  # 5% increase max for split
+
+                        # Cost Updates
+                        type_id = int(self.cluster_type[d])
+                        avg_c += DEFAULT_CLUSTER_TYPES[type_id]['cost'] * div[d]
+
+                        # Load updates
+                        self.avg_load_served[d] += div[d]
+
+                    avg_l = avg_l / self.deployment_request.num_replicas
+                    avg_c = avg_c / self.deployment_request.num_replicas
+                    avg_cpu = avg_cpu / self.deployment_request.num_replicas
+
+                    self.avg_latency.append(avg_l)
+                    self.avg_cost.append(avg_c)
+                    self.avg_cpu_usage_percentage_cluster_selected.append(avg_cpu)
+
+                    # logging.info("[BF1B1] Average Latency: {}".format(avg_l))
+                    # logging.info("[BF1B1] Average Cost: {}".format(avg_c))
+                    # logging.info("[BF1B1] Average CPU: {}".format(avg_cpu))
+                    # logging.info("[BF1B1] Average Load: {}".format(self.avg_load_served))
+
+                    # Save expected latency and cost in deployment request
+                    self.deployment_request.expected_latency = avg_l
+                    self.deployment_request.expected_cost = avg_c
+                    self.enqueue_request(self.deployment_request)
+
+        # Reject the request: give the agent a penalty, especially if the request could have been accepted
+        elif action == self.num_clusters + NUM_SPREADING_ACTIONS:
+            self.penalty = True
+        else:
+            print(f"[Take Action] Unrecognized action: {action}")
+            #logging.info('[Take Action] Unrecognized Action: {}'.format(action))
 
     def get_reward(self):
 
@@ -600,6 +769,71 @@ class KarmadaSchedulingEnvMulti(gym.Env):
             #logging.info('[first_fit_decreasing_heuristic] Replicas division: {}'.format(distribution))
             return distribution
         
+    def first_fit_increasing_heuristic(self, num_replicas, cpu_req, mem_req, num_clusters, free_cpu, free_mem):
+        #logging.info('[Divide] Num. replicas to distribute: {}'.format(num_replicas))
+        distribution = [0] * num_clusters
+
+        # Calculate split factors
+        split_factors = [min(free_cpu[n] / cpu_req, free_mem[n] / mem_req) for n in range(num_clusters)]
+
+        # Calculate minimum factor
+        min_factor = int(math.ceil(min(split_factors)))
+        if min_factor >= num_replicas:
+            min_factor = num_replicas - 1  # To really distribute at the end
+
+        # Sort the clusters by their remaining capacity (CPU) in increasing order
+        sorted_clusters_cpu = sorted(range(num_clusters), key=lambda x: free_cpu[x])
+
+        for n in sorted_clusters_cpu:
+            if num_replicas == 0:
+                break
+
+            if num_replicas > 0 and min_factor < num_replicas and (cpu_req < free_cpu[n]) and (mem_req < free_mem[n]):
+                distribution[n] += min_factor
+                num_replicas -= min_factor
+
+        # Still distribute remaining replicas if needed
+        if num_replicas > 0:
+            #logging.info('[Divide] Replicas still to distribute...')
+            for n in range(num_clusters):
+                if num_replicas == 0:
+                    break
+
+                if (cpu_req < free_cpu[n]) and (mem_req < free_mem[n]):
+                    distribution[n] += 1
+                    num_replicas -= 1
+
+        #logging.info('[Divide] Replicas division: {}'.format(distribution))
+        return distribution
+
+    def best_fit_heuristic_one_by_one(self, num_replicas, cpu_req, mem_req, num_clusters, free_cpu, free_mem):
+        #logging.info('[best_fit_heuristic_one_by_one] Num. replicas to distribute: {}'.format(num_replicas))
+        distribution = [0] * num_clusters
+
+        # Distribute the replicas across clusters
+        for _ in range(num_replicas):
+            # Sort the clusters by their remaining capacity (CPU) in increasing order
+            sorted_clusters_cpu = sorted(range(num_clusters), key=lambda x: free_cpu[x])
+
+            best_fit_bin = None
+            best_fit_space = float('inf')
+
+            for cluster_idx in sorted_clusters_cpu:
+                if free_cpu[cluster_idx] >= cpu_req and free_mem[cluster_idx] >= mem_req:
+                    space = free_cpu[cluster_idx] - cpu_req + free_mem[cluster_idx] - mem_req
+                    if space < best_fit_space:
+                        best_fit_bin = cluster_idx
+                        best_fit_space = space
+
+            if best_fit_bin is not None:
+                distribution[best_fit_bin] += 1
+                free_cpu[best_fit_bin] -= cpu_req
+                free_mem[best_fit_bin] -= mem_req
+
+        #logging.info('[best_fit_heuristic_one_by_one] Replicas division: {}'.format(distribution))
+        return distribution
+
+        
     def get_state(self):
         # Get observation state
         cluster = np.full(shape=(NUM_SPREADING_ACTIONS + 1, NUM_METRICS_CLUSTER + 1), fill_value=-1)
@@ -627,67 +861,4 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         return observation
         
-    #def read_power_consumption(self, filename='./envs/kepler_power_consumption.csv'): #./gym-multi-k8s/envs/
-    #    """
-    #    Read power consumption from a file. We are using a CSV file with the following format:
-    #    load,vWall,eCluster
-    #    10,25,20
-    #    20,35,35
-    #    30,50,50
-    #    where load is the CPU load, and vWall and eCluster are two different nodes type.
-    #    """
-    #    data = pd.read_csv(filename)
-    #    data = data.set_index('load')
-    #    return data
-    #
-    #def interpolate_power_consumption(self, load, node_type='vWall'):
-    #    """
-    #    Interpolate power consumption based on the load.
-    #    vWall and eCluster are two different values for power conumption
-    #    load is a number between the one listed in the table, e.g.:
-    #    load,vWall,eCluster
-    #    10,25,20
-    #    20,35,35
-    #    30,50,50
-    #    Given a load of 15, it will return the interpolated values for vWall and eCluster.
-    #    If the load is below the minimum or above the maximum, it will return the values for the closest load.
-    #    :param load: CPU load
-    #    :return: interpolated power consumption
-    #    """
-    #    #print(f"Interpolating power consumption for load: {load}")
-    #    if load < 10:
-    #        return self.power_consumption_data.loc[self.power_consumption_data.index.min(), node_type]
-    #    elif load > 100:
-    #        return self.power_consumption_data.loc[self.power_consumption_data.index.max(), node_type]
-    #    else:
-    #        # Interpolate the values for vWall and eCluster
-    #        if node_type == 'eCluster':
-    #            return np.interp(load, self.power_consumption_data.index, self.power_consumption_data['eCluster'])
-    #        else:
-    #            # Default to vWall if no specific node type is provided
-    #            return np.interp(load, self.power_consumption_data.index, self.power_consumption_data['vWall'])
-    #        
-    #def calculate_power_consumption(self):
-    #    """ 
-    #    Calculate the power consumption based on the current load of the clusters.
-    #    TODO: Let's add a cluster type parameter here, so we can discriminate 
-    #    between two tier of resources, e.g. vWall and eCluster.
-    #    """
-    #    power_consumption = 0.0
-    #    for cpu in self.allocated_cpu:
-    #        # convert CPU to a scalar value in the scale from 10 to 100
-    #        cpu = cpu * 100
-    #        node_consumption = self.interpolate_power_consumption(cpu)
-    #        #print(f"Node {0} CPU: {cpu}, Power Consumption: {node_consumption}")
-    #        power_consumption += cpu * node_consumption  # Assuming cost is power consumption per CPU unit
-    #    return power_consumption
-#
-    #def calculate_incremental_power_consumption(self, cpu, node_type='vWall'):
-    #    """
-    #    Calculate the incremental power consumption based on the current load of the clusters.
-    #    :param cpu: CPU load
-    #    :param node_type: Node type (vWall or eCluster)
-    #    :return: incremental power consumption
-    #    """
-    #    old_power_consumption = self.power_consumption
-    #    return self.calculate_power_consumption() - old_power_consumption
+    
