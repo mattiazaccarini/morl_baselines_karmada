@@ -2,7 +2,8 @@ import envs
 import gymnasium as gym
 import mo_gymnasium as mo_gymnasium
 from morl_baselines.multi_policy.pareto_q_learning.pql import PQL
-from morl_baselines.multi_policy.pareto_q_learning.geometric_pql import GeometricPQL
+#from morl_baselines.multi_policy.pareto_q_learning.geometric_pql import GeometricPQL
+from algorithms.geometric_pql import GeometricPQL
 from wrappers.discretized_wrapper import DiscretizerWrapper
 
 import os, pickle, wandb
@@ -34,6 +35,13 @@ if __name__ == "__main__":
         gamma=GAMMA,
         log=True,  # use weights and biases to see the results!
     )
+
+    #agent = GeometricPQL(
+    #    env,
+    #    gamma=GAMMA,
+    #    ref_point=ref_point,
+    #    log=True, # use weights and biases to see the results!
+    #)
 
     agent.train(total_timesteps=TOTAL_TIMESTEPS, eval_env=eval_env, log_every=1000, action_eval="hypervolume") # Use this for PQL and GeometricPQL
     
