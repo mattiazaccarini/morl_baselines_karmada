@@ -1,8 +1,7 @@
 import envs
 import gymnasium as gym
 import mo_gymnasium as mo_gymnasium
-from morl_baselines.multi_policy.pareto_q_learning.pql import PQL
-#from morl_baselines.multi_policy.pareto_q_learning.geometric_pql import GeometricPQL
+from algorithms.pql import PQL
 from algorithms.geometric_pql import GeometricPQL
 from wrappers.discretized_wrapper import DiscretizerWrapper
 

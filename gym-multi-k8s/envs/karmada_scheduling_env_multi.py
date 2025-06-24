@@ -46,8 +46,8 @@ DEFAULT_NUM_EPISODE_STEPS = 250
 MIN_DELAY = 1  # corresponds to 1ms
 MAX_DELAY = 1000  # corresponds to 1000ms
 
-MAX_COST = 16 
-MIN_COST = 1
+MAX_COST = 72 
+MIN_COST = 2
 
 MIN_GINI = 0.0
 MAX_GINI = 1.0  # Gini coefficient ranges from 0 to 1
