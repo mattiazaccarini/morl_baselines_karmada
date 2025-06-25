@@ -25,8 +25,10 @@ DEFAULT_ARRIVAL_RATE = 100
 DEFAULT_CALL_DURATION = 1
 
 # Spreading strategies
-NUM_SPREADING_ACTIONS = 1
+NUM_SPREADING_ACTIONS = 3
 FFD = 0  # First Fit Deployment
+FFI = 1
+BF1B1 = 2
 
 DEFAULT_FILE_NAME_RESULTS = "karmada_gym_4_components_results"
 NUM_METRICS_CLUSTER = 4
@@ -162,6 +164,8 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
         # Keep track of deployment actions
         self.deploy_ffd = 0  # First Fit Deployment
+        self.deploy_ffi = 0
+        self.deploy_bf1b1 = 0
 
         self.file_results = file_results_name + "_" + str(time.time()) + ".csv"
         self.is_eval_env = is_eval_env
@@ -220,6 +224,8 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
         # Keep track of spreading actions
         self.deploy_ffd = 0  # First Fit Deployment
+        self.deploy_ffi = 0
+        self.deploy_bf1b1 = 0
         self.info = {}
 
         # return obs
@@ -384,6 +390,152 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
                     self.deployment_request.expected_cost = avg_c
 
                     self.enqueue_request(self.deployment_request)
+        # FFI decreasing strategy
+        elif action == self.num_clusters + FFI:
+            if self.deployment_request.num_replicas == 1:
+                #logging.info('[Take Action] Block FFI strategy since only one replica... ')
+                self.penalty = True
+            else:
+                #logging.info('[Take Action] Divide FFI chosen... ')
+                div = self.first_fit_decreasing_heuristic(self.deployment_request.num_replicas,
+                                                          self.deployment_request.cpu_request,
+                                                          self.deployment_request.memory_request,
+                                                          self.num_clusters,
+                                                          self.free_cpu, self.free_memory)
+
+                if self.check_if_clusters_are_full_after_split_deployment(div):
+                    self.penalty = True
+                    #logging.info('[Take Action] Block the FFI strategy since cluster will be full!')
+                else:
+                    # accept request
+                    self.penalty = False
+                    self.accepted_requests += 1
+                    self.ep_accepted_requests += 1
+                    self.deploy_ffi += 1
+                    self.deployment_request.split_clusters = div
+                    self.deployment_request.is_deployment_split = True
+
+                    avg_l = 0
+                    avg_c = 0
+                    avg_cpu = 0
+                    clusters = 0
+                    for d in range(len(div)):
+                        # Update allocated amounts
+                        self.allocated_cpu[d] += self.deployment_request.cpu_request * div[d]
+                        self.allocated_memory[d] += self.deployment_request.memory_request * div[d]
+                        avg_cpu += 100 * (self.allocated_cpu[d] / self.cpu_capacity[d])
+                        # Update free resources
+                        self.free_cpu[d] = self.cpu_capacity[d] - self.allocated_cpu[d]
+                        self.free_memory[d] = self.memory_capacity[d] - self.allocated_memory[d]
+
+                        # Latency updates
+                        avg_l += self.latency[d] * div[d]
+                        self.increase_latency(d, 1.05)  # 5% increase max for split
+
+                        # Cost Updates
+                        type_id = int(self.cluster_type[d])
+                        avg_c += DEFAULT_CLUSTER_TYPES[type_id]['cost'] * div[d]
+
+                        # Load updates
+                        self.avg_load_served[d] += div[d]
+
+                    avg_l = avg_l / self.deployment_request.num_replicas
+                    avg_c = avg_c / self.deployment_request.num_replicas
+                    avg_cpu = avg_cpu / self.deployment_request.num_replicas
+
+                    self.avg_latency.append(avg_l)
+                    self.avg_cost.append(avg_c)
+                    self.avg_cpu_usage_percentage_cluster_selected.append(avg_cpu)
+
+                    # Save expected latency and cost in deployment request
+                    self.deployment_request.expected_latency = avg_l
+                    self.deployment_request.expected_cost = avg_c
+
+                    # logging.info("[Divide] After")
+                    # logging.info("[Divide] CPU allocated: {}".format(self.allocated_cpu))
+                    # logging.info("[Divide] CPU free: {}".format(self.free_cpu))
+
+                    # logging.info("[Divide] MEM allocated: {}".format(self.allocated_memory))
+                    # logging.info("[Divide] MEM free: {}".format(self.free_memory))
+                    self.enqueue_request(self.deployment_request)
+        # BF1B1 spreading strategy
+        elif action == self.num_clusters + BF1B1:
+            if self.deployment_request.num_replicas == 1:
+                #logging.info('[Take Action] Block BF1B1 strategy since only one replica... ')
+                self.penalty = True
+            else:
+                #logging.info('[Take Action] BF1B1 chosen... ')
+                div = self.best_fit_heuristic_one_by_one(self.deployment_request.num_replicas,
+                                                         self.deployment_request.cpu_request,
+                                                         self.deployment_request.memory_request,
+                                                         self.num_clusters,
+                                                         self.free_cpu, self.free_memory)
+
+                if self.check_if_clusters_are_full_after_split_deployment(div):
+                    self.penalty = True
+                    #logging.info('[Take Action] Block the BF1B1 strategy since cluster will be full!')
+                else:
+                    # accept request
+                    self.penalty = False
+                    self.accepted_requests += 1
+                    self.ep_accepted_requests += 1
+                    self.deploy_bf1b1 += 1
+                    self.deployment_request.split_clusters = div
+                    self.deployment_request.is_deployment_split = True
+
+                    # logging.info("[Divide] Before")
+                    # logging.info("[Divide] CPU allocated: {}".format(self.allocated_cpu))
+                    # logging.info("[Divide] CPU free: {}".format(self.free_cpu))
+                    # logging.info("[Divide] MEM allocated: {}".format(self.allocated_memory))
+                    # logging.info("[Divide] MEM free: {}".format(self.free_memory))
+
+                    avg_l = 0
+                    avg_c = 0
+                    avg_cpu = 0
+                    clusters = 0
+                    for d in range(len(div)):
+                        # Update allocated amounts
+                        self.allocated_cpu[d] += self.deployment_request.cpu_request * div[d]
+                        self.allocated_memory[d] += self.deployment_request.memory_request * div[d]
+                        avg_cpu += 100 * (self.allocated_cpu[d] / self.cpu_capacity[d])
+                        # Update free resources
+                        self.free_cpu[d] = self.cpu_capacity[d] - self.allocated_cpu[d]
+                        self.free_memory[d] = self.memory_capacity[d] - self.allocated_memory[d]
+
+                        # Latency updates
+                        avg_l += self.latency[d] * div[d]
+                        self.increase_latency(d, 1.05)  # 5% increase max for split
+
+                        # Cost Updates
+                        type_id = int(self.cluster_type[d])
+                        avg_c += DEFAULT_CLUSTER_TYPES[type_id]['cost'] * div[d]
+
+                        # Load updates
+                        self.avg_load_served[d] += div[d]
+
+                    avg_l = avg_l / self.deployment_request.num_replicas
+                    avg_c = avg_c / self.deployment_request.num_replicas
+                    avg_cpu = avg_cpu / self.deployment_request.num_replicas
+
+                    self.avg_latency.append(avg_l)
+                    self.avg_cost.append(avg_c)
+                    self.avg_cpu_usage_percentage_cluster_selected.append(avg_cpu)
+
+                    # logging.info("[BF1B1] Average Latency: {}".format(avg_l))
+                    # logging.info("[BF1B1] Average Cost: {}".format(avg_c))
+                    # logging.info("[BF1B1] Average CPU: {}".format(avg_cpu))
+                    # logging.info("[BF1B1] Average Load: {}".format(self.avg_load_served))
+
+                    # Save expected latency and cost in deployment request
+                    self.deployment_request.expected_latency = avg_l
+                    self.deployment_request.expected_cost = avg_c
+                    self.enqueue_request(self.deployment_request)
+
+        # Reject the request: give the agent a penalty, especially if the request could have been accepted
+        elif action == self.num_clusters + NUM_SPREADING_ACTIONS:
+            self.penalty = True
+        else:
+            print(f"[Take Action] Unrecognized action: {action}")
 
 
     def get_reward(self):
@@ -624,6 +776,70 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
             #logging.info('[first_fit_decreasing_heuristic] Replicas division: {}'.format(distribution))
             return distribution
+        
+    def first_fit_increasing_heuristic(self, num_replicas, cpu_req, mem_req, num_clusters, free_cpu, free_mem):
+        #logging.info('[Divide] Num. replicas to distribute: {}'.format(num_replicas))
+        distribution = [0] * num_clusters
+
+        # Calculate split factors
+        split_factors = [min(free_cpu[n] / cpu_req, free_mem[n] / mem_req) for n in range(num_clusters)]
+
+        # Calculate minimum factor
+        min_factor = int(math.ceil(min(split_factors)))
+        if min_factor >= num_replicas:
+            min_factor = num_replicas - 1  # To really distribute at the end
+
+        # Sort the clusters by their remaining capacity (CPU) in increasing order
+        sorted_clusters_cpu = sorted(range(num_clusters), key=lambda x: free_cpu[x])
+
+        for n in sorted_clusters_cpu:
+            if num_replicas == 0:
+                break
+
+            if num_replicas > 0 and min_factor < num_replicas and (cpu_req < free_cpu[n]) and (mem_req < free_mem[n]):
+                distribution[n] += min_factor
+                num_replicas -= min_factor
+
+        # Still distribute remaining replicas if needed
+        if num_replicas > 0:
+            #logging.info('[Divide] Replicas still to distribute...')
+            for n in range(num_clusters):
+                if num_replicas == 0:
+                    break
+
+                if (cpu_req < free_cpu[n]) and (mem_req < free_mem[n]):
+                    distribution[n] += 1
+                    num_replicas -= 1
+
+        #logging.info('[Divide] Replicas division: {}'.format(distribution))
+        return distribution
+
+    def best_fit_heuristic_one_by_one(self, num_replicas, cpu_req, mem_req, num_clusters, free_cpu, free_mem):
+        #logging.info('[best_fit_heuristic_one_by_one] Num. replicas to distribute: {}'.format(num_replicas))
+        distribution = [0] * num_clusters
+
+        # Distribute the replicas across clusters
+        for _ in range(num_replicas):
+            # Sort the clusters by their remaining capacity (CPU) in increasing order
+            sorted_clusters_cpu = sorted(range(num_clusters), key=lambda x: free_cpu[x])
+
+            best_fit_bin = None
+            best_fit_space = float('inf')
+
+            for cluster_idx in sorted_clusters_cpu:
+                if free_cpu[cluster_idx] >= cpu_req and free_mem[cluster_idx] >= mem_req:
+                    space = free_cpu[cluster_idx] - cpu_req + free_mem[cluster_idx] - mem_req
+                    if space < best_fit_space:
+                        best_fit_bin = cluster_idx
+                        best_fit_space = space
+
+            if best_fit_bin is not None:
+                distribution[best_fit_bin] += 1
+                free_cpu[best_fit_bin] -= cpu_req
+                free_mem[best_fit_bin] -= mem_req
+
+        #logging.info('[best_fit_heuristic_one_by_one] Replicas division: {}'.format(distribution))
+        return distribution
         
     def get_state(self):
         # Get observation state
