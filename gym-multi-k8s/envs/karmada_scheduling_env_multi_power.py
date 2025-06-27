@@ -295,7 +295,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         self.current_step += 1
         #print(f"Action taken: {action} at step {self.current_step}")
         # Stop if MAX_STEPS
-        if action > self.num_clusters:
+        if action > self.num_actions:
             print(f"Action {action} is not valid, it should be less than {self.num_clusters + NUM_SPREADING_ACTIONS}")
 
         if self.current_step == self.episode_length:
