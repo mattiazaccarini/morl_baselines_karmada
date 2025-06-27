@@ -3,6 +3,7 @@ import gymnasium as gym
 import mo_gymnasium as mo_gymnasium
 from morl_baselines.common.scalarization import tchebicheff
 from morl_baselines.multi_policy.multi_policy_moqlearning.mp_mo_q_learning import MPMOQLearning
+import pickle, time
 
 import numpy as np
 
@@ -12,22 +13,33 @@ GAMMA = 0.9
 TOTAL_TIMESTEPS = 150000
 EVAL_FREQ = 500
 
+def scalarization_fn(v, w):
+    return tchebicheff(tau=4.0, reward_dim=4)(v, w)
+
+
 if __name__ == "__main__":
     env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4,
                              min_replicas=1, max_replicas=16, 
-                             file_results_name="karmada_gym_4components_results",
+                             file_results_name=f"karmada_gym_4components_results_mpmoqlearning_{time.time()}",
                              is_eval_env=False,)
     eval_env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=4,
                                   min_replicas=1, max_replicas=16,
-                                  file_results_name="karmada_gym_4components_results_eval",
+                                  file_results_name=f"karmada_gym_4components_results_eval_mpmoqlearning_{time.time()}",
                                   is_eval_env=True)
 
-    scalarization = tchebicheff(tau=4.0, reward_dim=4)
+    #scalarization = tchebicheff(tau=4.0, reward_dim=4)
+
+    ref_point = np.array([
+    0.0,
+    0.0,
+    0.0,
+    0.0005
+    ], dtype=np.float32)
 
     agent = MPMOQLearning(
         env,
         learning_rate=0.3,
-        scalarization=scalarization,
+        scalarization=scalarization_fn,
         use_gpi_policy=False,
         dyna=False,
         initial_epsilon=1,
@@ -40,7 +52,29 @@ if __name__ == "__main__":
     agent.train(
         total_timesteps=TOTAL_TIMESTEPS, 
         timesteps_per_iteration=15000, 
-        eval_freq=100,
+        eval_freq=EVAL_FREQ,
         eval_env=eval_env,
-        ref_point=np.array([1, 1, 0.9, 1]),
+        num_eval_weights_for_front=100,      # ⬅ weights to estimate full Pareto front
+        num_eval_episodes_for_front=5,       # ⬅ episodes per weight for full front
+        ref_point=ref_point,
     )
+
+    """
+    for i, (q_table, reward_vec, weight) in enumerate(zip(agent.policies, agent.pareto_front, agent.weights)):
+        print(f"Policy {i}:")
+        print(f"  Weight: {weight}")
+        print(f"  Reward: {reward_vec}")
+    """
+
+    model_data = {
+        "policies": agent.policies,
+        "ref_point": ref_point,
+        #"weights": agent.get,
+        #"pareto_front": agent.pareto_front,
+    }
+    
+    # Get timestamp for the model file
+    timestamp = time.time()
+
+    with open(f"mpmoqlearning_model_{timestamp}.pkl", "wb") as f:
+        pickle.dump(model_data, f)
