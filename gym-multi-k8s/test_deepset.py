@@ -3,7 +3,7 @@ import logging
 import numpy as np
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecMonitor, VecNormalize
 from tqdm import tqdm
-from envs.karmada_scheduling_env import KarmadaSchedulingEnv
+from envs.karmada_scheduling_fgcs_env import KarmadaSchedulingEnv
 from envs.dqn_deepset import DQN_DeepSets
 from envs.ppo_deepset import PPO_DeepSets
 
@@ -17,19 +17,19 @@ logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S
 
 if __name__ == "__main__":
     # Define here variables for testing
-    num_clusters = [4]  # 4, 8, 12, 16, 32
+    num_clusters = [8]  # 4, 8, 12, 16, 32
     reward_function = 'multi'
-    alg = 'dqn'
-    strategy = "inequality/"
-    latency_weight = 0.0
-    cost_weight = 0.0  # 0.0
-    gini_weight = 1.0
+    alg = 'ppo'
+    strategy = "multi/"
+    latency_weight = 0.33
+    cost_weight = 0.33  # 0.0
+    gini_weight = 0.33
 
-    episodes = 2000
+    episodes = 10
     episode_length = 100
     call_duration_r = 1
 
-    replicas = [4, 8, 12, 16, 24, 32]  # 4, 8, 12, 16, 24, 32
+    replicas = [4]#, 8, 12, 16, 24, 32]  # 4, 8, 12, 16, 24, 32
 
     i = 0
     for c in num_clusters:
@@ -39,7 +39,7 @@ if __name__ == "__main__":
             env = KarmadaSchedulingEnv(num_clusters=c, arrival_rate_r=episode_length, call_duration_r=call_duration_r,
                                        episode_length=episode_length,
                                        latency_weight=latency_weight, cost_weight=cost_weight, gini_weight=gini_weight,
-                                       min_replicas=r, max_replicas=r,
+                                       min_replicas=1, max_replicas=r,
                                        reward_function=reward_function)
             env.reset()
             _, _, _, info = env.step(0)
@@ -50,7 +50,7 @@ if __name__ == "__main__":
                 episode_length=episode_length,
                 latency_weight=latency_weight, cost_weight=cost_weight, gini_weight=gini_weight,
                 reward_function=reward_function,
-                min_replicas=r, max_replicas=r,
+                min_replicas=1, max_replicas=r,
                 file_results_name=str(i) + '_karmada_gym_results_num_clusters_' + str(c) + '_replicas_' + str(r))
                                 ])
             envs = VecMonitor(envs, MONITOR_PATH, info_keywords=info_keywords)
@@ -65,11 +65,13 @@ if __name__ == "__main__":
                 print('Invalid algorithm!')
 
             # Adapt the path accordingly
-            agent.load(f"./results/karmada/"
-                       + reward_function + "/" + strategy + alg + "_deepsets_env_karmada_num_clusters_4_reward_"
-                       + reward_function + "_totalSteps_200000_run_1/"
-                       + alg + "_deepsets_env_karmada_num_clusters_4_reward_"
-                       + reward_function + "_totalSteps_200000")
+            #agent.load(f"./results/karmada/"
+            #           + reward_function + "/" + strategy + alg + "_deepsets_env_karmada_num_clusters_4_reward_"
+            #           + reward_function + "_totalSteps_200000_run_1/"
+            #           + alg + "_deepsets_env_karmada_num_clusters_4_reward_"
+            #           + reward_function + "_totalSteps_200000")
+            
+            agent.load('ppo_deepsets_env_karmada_num_clusters_8_reward_multi_totalSteps_200000')
 
             # Test the agent for 100 episodes
             for _ in tqdm(range(episodes)):

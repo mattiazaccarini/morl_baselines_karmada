@@ -10,8 +10,8 @@ import numpy as np
 num_envs = 4
 
 GAMMA = 0.9
-TOTAL_TIMESTEPS = 150000
-EVAL_FREQ = 500
+TOTAL_TIMESTEPS = 20_000
+EVAL_FREQ = 1000
 
 def scalarization_fn(v, w):
     return tchebicheff(tau=4.0, reward_dim=4)(v, w)
@@ -19,13 +19,14 @@ def scalarization_fn(v, w):
 
 if __name__ == "__main__":
 
-    number_of_clusters = [4, 6, 8, 10, 12, 14, 16]
-    replicas = [4, 8, 12, 16, 24, 32] # 4, 8, 12, 16, 24, 32
+    number_of_clusters = [8]
+    #number_of_clusters = [12]
+    replicas = [4, 6, 8]#, 16, 24, 32] # 4, 8, 12, 16, 24, 32
 
     for num_clusters in number_of_clusters:
         for num_replicas in replicas:
 
-            min_replicas = num_replicas
+            min_replicas = 1
             max_replicas = num_replicas
 
             print(f"Training MPMOQLearning with {num_clusters} clusters and {num_replicas} replicas per cluster.")
@@ -61,7 +62,7 @@ if __name__ == "__main__":
 
             agent.train(
                 total_timesteps=TOTAL_TIMESTEPS, 
-                timesteps_per_iteration=15000, 
+                timesteps_per_iteration=4000, 
                 eval_freq=EVAL_FREQ,
                 eval_env=eval_env,
                 num_eval_weights_for_front=100,      # ⬅ weights to estimate full Pareto front
@@ -69,7 +70,8 @@ if __name__ == "__main__":
                 ref_point=ref_point,
             )
 
-        
+            """
+            # Do not save model for now
             model_data = {
                 "policies": agent.policies,
                 "ref_point": ref_point,
@@ -78,7 +80,6 @@ if __name__ == "__main__":
             }
             
             # Get timestamp for the model file
-            """
             timestamp = time.time()
 
             with open(f"mpmoqlearning_model_{timestamp}_{num_clusters}.pkl", "wb") as f:
