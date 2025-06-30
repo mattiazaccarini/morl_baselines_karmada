@@ -154,6 +154,18 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
         # This value is 0 at the start, and then is updated in the method direclty
         self.calculate_power_consumption()
+                # Let's define the minimum power consumption and the max power consumption
+        # the minimum is to have all clusters idle, the maximum is to have all clusters fully utilized
+        self.min_power_consumption = np.sum(self.cluster_power_consumption)
+        self.max_power_consumption = 0.0
+        for c in range(self.num_clusters):
+            # Suppose the maximum is to have all clusters at 80% CPU load
+            cpu_load = 0.8 * 100.0  # Convert to percentage
+            # convert CPU to a scalar value in the scale from 10 to 100
+            device_profile = DEFAULT_CLUSTER_TYPES[self.cluster_type[c]]['device']
+            cluster_consumption = self.interpolate_power_consumption(cpu_load, device_profile)
+            #print(f"Cluster {c}, load: {cpu_load}, power consumption: {cluster_consumption} for device {device_profile}")
+            self.max_power_consumption += cluster_consumption  # Assuming cost is power consumption per CPU unit
 
         # Keep track of free resources for deployment requests
         self.free_cpu = np.zeros(num_clusters, dtype=np.float32)
@@ -540,10 +552,6 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
     def get_reward(self):
 
-        # Power consumption reward, for now is just inverse of the power consumption
-        # Avoid division by zero
-        power_consumption_reward = 1.0 / (self.total_power_consumption + 1e-6)  
-
         if self.penalty:
             # Penalization of 5% for each value
             last_latency = self.avg_latency[-1] if self.avg_latency else 500.0  # default value
@@ -553,8 +561,8 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
                 (1 - normalize(last_latency * 1.05, MIN_DELAY, MAX_DELAY)),
                 (1 - normalize(last_cost * 1.05, MIN_COST, MAX_COST)),
                 (1 - normalize(last_gini * 0.95, MIN_GINI, MAX_GINI)),
-                power_consumption_reward * 1.05
-            ], dtype=np.float32)
+                (1 - normalize(self.total_power_consumption * 1.05, 
+                               self.min_power_consumption, self.max_power_consumption))            ], dtype=np.float32)
             return penalized_reward
 
         lat = 0
@@ -576,7 +584,9 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         # Compute Gini coefficient reward
         gini = calculate_gini_coefficient(self.avg_load_served)
         gini_reward = gini
-        gini_reward = 1 - normalize(gini_reward, MIN_GINI, MAX_GINI)  # Normalize Gini coefficient
+        gini_reward = 1 - normalize(gini_reward, MIN_GINI, MAX_GINI)
+        power_consumption_reward = 1 - normalize(self.total_power_consumption,
+                                                 self.min_power_consumption, self.max_power_consumption)          
 
         #Return reward as a vector as required by the multi-objective environment
         return np.array([latency_reward, cost_reward, gini_reward, power_consumption_reward], dtype=np.float32)
