@@ -57,7 +57,8 @@ if __name__ == "__main__":
                 final_epsilon=0.01,
                 epsilon_decay_steps=int(2e5),
                 weight_selection_algo="random",
-                epsilon_ols=0.1,
+                epsilon_ols=0.1, # not using ols now
+                experiment_name=f"MPMOQLearning-Karmada-MORL-C{num_clusters}-R{num_replicas}",
             )
 
             agent.train(
