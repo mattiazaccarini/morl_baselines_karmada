@@ -15,6 +15,7 @@ import mo_gymnasium, argparse
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate a saved MPMOQLearning model.")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the saved model file.")
+    parser.add_argument("--num_clusters", type=int, default=4, help="Number of clusters in the environment.")
     return parser.parse_args()
 
 def scalarization_fn(v, w):
@@ -22,11 +23,12 @@ def scalarization_fn(v, w):
 
 def main():
     args = parse_args()
+    num_clusters = args.num_clusters
     model_path = args.model_path
     # Create the environment (same as during training)
 
     env = mo_gymnasium.make("karmada-scheduling-multi-v1",
-                             num_clusters=4,
+                             num_clusters=num_clusters,
                              min_replicas=1,
                              max_replicas=16,
                              file_results_name=f"karmada_gym_4components_results_eval__mpmoqlearning_{time.time()}",
