@@ -25,11 +25,11 @@ if __name__ == "__main__":
     cost_weight = 0.33  # 0.0
     gini_weight = 0.33
 
-    episodes = 10
+    episodes = 30
     episode_length = 100
     call_duration_r = 1
 
-    replicas = [4]#, 8, 12, 16, 24, 32]  # 4, 8, 12, 16, 24, 32
+    replicas = [4, 6, 8]#, 8, 12, 16, 24, 32]  # 4, 8, 12, 16, 24, 32
 
     i = 0
     for c in num_clusters:
@@ -51,7 +51,7 @@ if __name__ == "__main__":
                 latency_weight=latency_weight, cost_weight=cost_weight, gini_weight=gini_weight,
                 reward_function=reward_function,
                 min_replicas=1, max_replicas=r,
-                file_results_name=str(i) + '_karmada_gym_results_num_clusters_' + str(c) + '_replicas_' + str(r))
+                file_results_name=str(i) + '_karmada_gym_results_num_clusters_' + str(c) + '_replicas_' + str(r) + "_" + alg + "_" + reward_function,)
                                 ])
             envs = VecMonitor(envs, MONITOR_PATH, info_keywords=info_keywords)
 

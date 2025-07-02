@@ -385,6 +385,35 @@ def save_to_csv(file_name, episode, reward, ep_block_prob, ep_accepted_requests,
              'execution_time': float("{:.2f}".format(execution_time))}
         )
 
+def save_to_csv_power(file_name, episode, reward, ep_block_prob, ep_accepted_requests, ep_rejected_requests, ep_deploy_all, ffd, ffi, bf1b1, avg_latency,
+                avg_cost, avg_cpu_cluster_selected, gini, power_consumption, execution_time): # bf1b1, nf1b1
+    file = open(file_name, 'a+', newline='')  # append
+    # file = open(file_name, 'w', newline='')
+    with file:
+        fields = ['episode', 'reward', 'ep_block_prob', 'ep_accepted_requests', 'ep_rejected_requests', 'ep_deploy_all',
+                  'ep_ffd', 'ep_ffi', 'ep_bf1b1', 'avg_latency', 'avg_cost',
+                  'avg_cpu_cluster_selected', 'gini', 'power_consumption', 'execution_time'] # 'ep_bf1b1', 'ep_ffi', 'ep_nf1b1'
+        writer = csv.DictWriter(file, fieldnames=fields)
+        # writer.writeheader()
+        writer.writerow(
+            {'episode': episode,
+             'reward': float("{:.2f}".format(reward)),
+             'ep_block_prob': float("{:.2f}".format(ep_block_prob)),
+             'ep_accepted_requests': float("{:.2f}".format(ep_accepted_requests)),
+             'ep_rejected_requests': float("{:.2f}".format(ep_rejected_requests)),
+             'ep_deploy_all': float("{:.2f}".format(ep_deploy_all)),
+             'ep_ffd': float("{:.2f}".format(ffd)),
+             'ep_ffi': float("{:.2f}".format(ffi)),
+             'ep_bf1b1': float("{:.2f}".format(bf1b1)),
+             # 'ep_nf1b1': float("{:.2f}".format(nf1b1)),
+             'avg_latency': float("{:.2f}".format(avg_latency)),
+             'avg_cost': float("{:.2f}".format(avg_cost)),
+             'avg_cpu_cluster_selected': float("{:.2f}".format(avg_cpu_cluster_selected)),
+             'gini': float("{:.2f}".format(gini)),
+             'power_consumption': float("{:.2f}".format(power_consumption)),
+             'execution_time': float("{:.2f}".format(execution_time))}
+        )
+
 def save_to_csv_multi(file_name, episode, ep_accepted_requests, ep_rejected_requests, avg_latency,
                 avg_cost, avg_cpu_cluster_selected, gini, execution_time):
     
