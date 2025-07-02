@@ -42,7 +42,8 @@ def process_file(filepath, test_name, full_data):
     data['replicas'] = data['replicas'].astype(int)
     data['config'] = 'c' + data['cluster'].astype(str) + '_r' + data['replicas'].astype(str)
 
-    data['acceptance_rate'] = data['ep_accepted_requests'] / (data['ep_accepted_requests'] + data['ep_rejected_requests'])
+    data['acceptance_rate'] = data['ep_accepted_requests'] / (
+            data['ep_accepted_requests'] + data['ep_rejected_requests'])
 
     # Save data in a df to save all data together
     full_data.append(data)
@@ -69,9 +70,12 @@ def process_file(filepath, test_name, full_data):
         mean, std, ci = calculate_95_ci(series)
         print(f"{description}: {mean:.2f} $\pm$ {ci:.2f}")
 
+
 def main():
-    dir = 'results/'
-    output_dir = 'results/processed/'
+    dir = 'results/power/'
+    output_dir = dir + 'processed/'
+    POWER=True
+
     full_data = []
     for filename in os.listdir(dir):
         if filename.endswith('.csv'):
@@ -85,9 +89,20 @@ def main():
     full_df.to_csv(os.path.join(output_dir, "full.csv"), index=False)
 
     # Load your CSV file
-    df = pd.read_csv("results/processed/full.csv")
+    df = pd.read_csv(output_dir + "full.csv")
 
-    hue_order = ['DQN', 'PPO', 'PQL', 'Geometric', 'MPMOQ']
+    if not POWER:
+        hue_order = ['DQN', 'PPO', 'PQL', 'Geometric', 'MPMOQ']  # ['DQN', 'PPO', 'PQL', 'Geometric', 'MPMOQ']
+        # Generate the 'deep' palette with, say, 8 colors
+        palette = sns.color_palette("deep", 8)
+
+    else:
+        hue_order = ['PQL', 'Geometric', 'MPMOQ']
+        # Generate the 'deep' palette with, say, 8 colors
+        palette = sns.color_palette("deep", 8)
+
+        # Skip the first two colors
+        palette = palette[2:]
 
     '''
     plt.figure(figsize=(7, 5))
@@ -115,7 +130,7 @@ def main():
         y="avg_latency",
         errorbar='ci',
         hue="algorithm",
-        palette="deep",
+        palette=palette,
         hue_order=hue_order,
     )
     plt.xlabel(r'\textbf{Cluster Configuration}', fontsize=20)
@@ -132,7 +147,7 @@ def main():
         y="avg_cost",
         errorbar='ci',
         hue="algorithm",
-        palette="deep",
+        palette=palette,
         hue_order=hue_order,
     )
     plt.xlabel(r'\textbf{Cluster Configuration}', fontsize=20)
@@ -149,7 +164,7 @@ def main():
         y="gini",
         errorbar='ci',
         hue="algorithm",
-        palette="deep",
+        palette=palette,
         hue_order=hue_order,
     )
     plt.xlabel(r'\textbf{Cluster Configuration}', fontsize=20)
@@ -166,7 +181,7 @@ def main():
         y="acceptance_rate",
         errorbar='ci',
         hue="algorithm",
-        palette="deep",
+        palette=palette,
         hue_order=hue_order,
     )
     plt.xlabel(r'\textbf{Cluster Configuration}', fontsize=20)
@@ -183,7 +198,7 @@ def main():
         y="avg_cpu_cluster_selected",
         errorbar='ci',
         hue="algorithm",
-        palette="deep",
+        palette=palette,
         hue_order=hue_order,
     )
     plt.xlabel(r'\textbf{Cluster Configuration}', fontsize=20)
@@ -200,7 +215,7 @@ def main():
         y="avg_latency",
         # errorbar='ci',
         hue="algorithm",
-        palette="deep",
+        palette=palette,
         linewidth=1,
         inner_kws=dict(box_width=4, whis_width=0.2, color=".8"),
         hue_order=hue_order,
@@ -219,7 +234,7 @@ def main():
         y="avg_cost",
         # errorbar='ci',
         hue="algorithm",
-        palette="deep",
+        palette=palette,
         linewidth=1,
         inner_kws=dict(box_width=4, whis_width=0.2, color=".8"),
         hue_order=hue_order,
@@ -238,7 +253,7 @@ def main():
         y="gini",
         # errorbar='ci',
         hue="algorithm",
-        palette="deep",
+        palette=palette,
         linewidth=1,
         inner_kws=dict(box_width=4, whis_width=0.2, color=".8"),
         hue_order=hue_order,
@@ -250,31 +265,78 @@ def main():
     plt.tight_layout()
     plt.savefig("seaborn_violin_gini.pdf", bbox_inches="tight", dpi=250)
 
-    plt.figure(figsize=(7, 5))
-    sns.set_context("talk")
-    ax = sns.pairplot(df,
-                      hue="algorithm",
-                      vars=["avg_latency", "avg_cost", "acceptance_rate", "gini"],
-                      markers=["o", "s", "v", "^", "D"],
-                      palette="deep",
-                      hue_order=hue_order,
-                      # corner=True,
-                      # kind="hist",
-                      )
+    if POWER:
+        plt.figure(figsize=(7, 5))
+        sns.violinplot(
+            data=df,
+            x="config",
+            y="avg_power",
+            # errorbar='ci',
+            hue="algorithm",
+            palette=palette,
+            linewidth=1,
+            inner_kws=dict(box_width=4, whis_width=0.2, color=".8"),
+            hue_order=hue_order,
+        )
+        plt.xlabel(r'\textbf{Cluster Configuration}', fontsize=20)
+        plt.ylabel(r'\textbf{Power Consumption [W]}', fontsize=20)
+        plt.legend(title="RL Algorithm", fontsize=12, title_fontsize=14, ncols=3)
+        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        plt.savefig("seaborn_violin_power.pdf", bbox_inches="tight", dpi=250)
 
-    ax._legend.set_title("RL Algorithm")
-    ax._legend.get_title().set_fontsize(14)  # Correct way to set title font size
+        plt.figure(figsize=(7, 5))
+        sns.set_context("talk")
+        ax = sns.pairplot(df,
+                          hue="algorithm",
+                          vars=["avg_latency", "avg_cost", "avg_power", "acceptance_rate", "gini"],
+                          markers=["o", "s", "v", "^", "D"],
+                          palette=palette,
+                          hue_order=hue_order,
+                          # corner=True,
+                          # kind="hist",
+                          )
 
-    ax._legend.set_bbox_to_anchor((1.05, 0.5))  # Shift right
-    ax._legend.set_loc("center left")  # Anchor on left of the legend box
-    # Optional: adjust font sizes
-    # ax._legend.set_title_fontsize(14)
-    for text in ax._legend.texts:
-        text.set_fontsize(12)
+        ax._legend.set_title("RL Algorithm")
+        ax._legend.get_title().set_fontsize(14)  # Correct way to set title font size
 
-    # plt.grid(True, linestyle='--', alpha=0.5)
-    plt.tight_layout()
-    plt.savefig("seaborn_pairplot.pdf", bbox_inches="tight", dpi=250)
+        ax._legend.set_bbox_to_anchor((1.05, 0.5))  # Shift right
+        ax._legend.set_loc("center left")  # Anchor on left of the legend box
+        # Optional: adjust font sizes
+        # ax._legend.set_title_fontsize(14)
+        for text in ax._legend.texts:
+            text.set_fontsize(12)
+
+        # plt.grid(True, linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        plt.savefig("seaborn_pairplot.pdf", bbox_inches="tight", dpi=250)
+
+    else:
+        plt.figure(figsize=(7, 5))
+        sns.set_context("talk")
+        ax = sns.pairplot(df,
+                          hue="algorithm",
+                          vars=["avg_latency", "avg_cost", "acceptance_rate", "gini"],
+                          markers=["o", "s", "v", "^", "D"],
+                          palette=palette,
+                          hue_order=hue_order,
+                          # corner=True,
+                          # kind="hist",
+                          )
+
+        ax._legend.set_title("RL Algorithm")
+        ax._legend.get_title().set_fontsize(14)  # Correct way to set title font size
+
+        ax._legend.set_bbox_to_anchor((1.05, 0.5))  # Shift right
+        ax._legend.set_loc("center left")  # Anchor on left of the legend box
+        # Optional: adjust font sizes
+        # ax._legend.set_title_fontsize(14)
+        for text in ax._legend.texts:
+            text.set_fontsize(12)
+
+        # plt.grid(True, linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        plt.savefig("seaborn_pairplot.pdf", bbox_inches="tight", dpi=250)
 
     '''
     # Data
@@ -502,6 +564,7 @@ def main():
         plt.tight_layout()
         plt.savefig(f"{metric}_comparison.pdf", bbox_inches="tight", dpi=250)
     '''
+
 
 if __name__ == '__main__':
     main()
