@@ -11,10 +11,10 @@ num_envs = 4
 
 GAMMA = 0.9
 TOTAL_TIMESTEPS = 20_000
-EVAL_FREQ = 1000
+EVAL_FREQ = 1_000
 
 def scalarization_fn(v, w):
-    return tchebicheff(tau=4.0, reward_dim=4)(v, w)
+    return tchebicheff(tau=4.0, reward_dim=3)(v, w)
 
 
 if __name__ == "__main__":
@@ -31,11 +31,11 @@ if __name__ == "__main__":
 
             print(f"Training MPMOQLearning with {num_clusters} clusters and {num_replicas} replicas per cluster.")
 
-            env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=num_clusters,
+            env = mo_gymnasium.make("karmada-scheduling-multi-v2", num_clusters=num_clusters,
                                      min_replicas=min_replicas, max_replicas=max_replicas,
                                      file_results_name=f"karmada_gym_c{num_clusters}_r{num_replicas}_results_mpmoq_{time.time()}_nopower",
                                  is_eval_env=False,)
-            eval_env = mo_gymnasium.make("karmada-scheduling-multi-v1", num_clusters=num_clusters,
+            eval_env = mo_gymnasium.make("karmada-scheduling-multi-v2", num_clusters=num_clusters,
                                       min_replicas=min_replicas, max_replicas=num_replicas,
                                       file_results_name=f"karmada_gym_c{num_clusters}_r{num_replicas}_results_eval_mpmoq_{time.time()}_nopower",
                                       is_eval_env=True)
@@ -43,8 +43,7 @@ if __name__ == "__main__":
             ref_point = np.array([
                 0.0,
                 0.0,
-                0.0,
-                0.0005
+                0.0
             ], dtype=np.float32)
 
             agent = MPMOQLearning(

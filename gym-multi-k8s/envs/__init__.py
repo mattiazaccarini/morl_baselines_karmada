@@ -9,3 +9,8 @@ register(
     id='karmada-scheduling-multi-v1',
     entry_point='envs.karmada_scheduling_env_multi_power:KarmadaSchedulingEnvMultiPower'
 )
+
+register(
+    id='karmada-scheduling-multi-v2',
+    entry_point='envs.karmada_scheduling_env_multi_mpmoql_nopower:KarmadaSchedulingEnvMultiNoPower'
+)

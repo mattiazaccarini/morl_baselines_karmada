@@ -19,7 +19,7 @@ if __name__ == "__main__":
     # Define here variables for testing
     num_clusters = [8]  # 4, 8, 12, 16, 32
     reward_function = 'multi'
-    alg = 'ppo'
+    alg = 'dqn'
     strategy = "multi/"
     latency_weight = 0.33
     cost_weight = 0.33  # 0.0
@@ -71,7 +71,7 @@ if __name__ == "__main__":
             #           + alg + "_deepsets_env_karmada_num_clusters_4_reward_"
             #           + reward_function + "_totalSteps_200000")
             
-            agent.load('ppo_deepsets_env_karmada_num_clusters_8_reward_multi_totalSteps_200000')
+            agent.load('dqn_deepsets_env_karmada_num_clusters_8_reward_multi_totalSteps_200000')
 
             # Test the agent for 100 episodes
             for _ in tqdm(range(episodes)):
