@@ -15,7 +15,6 @@ import scipy.stats as stats
 plt.rc('text', usetex=True)
 plt.rc('font', family='serif')
 
-
 # Calculate the 95% confidence interval
 def calculate_95_ci(series):
     mean = series.mean()
@@ -44,6 +43,8 @@ def process_file(filepath, test_name, full_data):
 
     data['acceptance_rate'] = data['ep_accepted_requests'] / (
             data['ep_accepted_requests'] + data['ep_rejected_requests'])
+
+    # print(data['acceptance_rate'].mean(), data['acceptance_rate'].std(), data['acceptance_rate'].count() )
 
     # Save data in a df to save all data together
     full_data.append(data)
@@ -74,7 +75,7 @@ def process_file(filepath, test_name, full_data):
 def main():
     dir = 'results/power/'
     output_dir = dir + 'processed/'
-    POWER=True
+    POWER= True
 
     full_data = []
     for filename in os.listdir(dir):
@@ -92,17 +93,17 @@ def main():
     df = pd.read_csv(output_dir + "full.csv")
 
     if not POWER:
-        hue_order = ['DQN', 'PPO', 'PQL', 'Geometric', 'MPMOQ']  # ['DQN', 'PPO', 'PQL', 'Geometric', 'MPMOQ']
+        hue_order = ['DQN', 'PPO', 'PQL', 'GeoPQL', 'MPMOQ']  # ['DQN', 'PPO', 'PQL', 'Geometric', 'MPMOQ']
         # Generate the 'deep' palette with, say, 8 colors
         palette = sns.color_palette("deep", 8)
 
     else:
-        hue_order = ['PQL', 'Geometric', 'MPMOQ']
+        hue_order = ['DQN', 'PPO', 'PQL', 'GeoPQL', 'MPMOQ'] # ['PQL', 'Geometric', 'MPMOQ']
         # Generate the 'deep' palette with, say, 8 colors
         palette = sns.color_palette("deep", 8)
 
         # Skip the first two colors
-        palette = palette[2:]
+        # palette = palette[2:]
 
     '''
     plt.figure(figsize=(7, 5))
@@ -293,21 +294,44 @@ def main():
                           markers=["o", "s", "v", "^", "D"],
                           palette=palette,
                           hue_order=hue_order,
+                          height=1.75,
                           # corner=True,
                           # kind="hist",
                           )
 
-        ax._legend.set_title("RL Algorithm")
-        ax._legend.get_title().set_fontsize(14)  # Correct way to set title font size
+        # Remove the original legend
+        # ax._legend.remove()
 
-        ax._legend.set_bbox_to_anchor((1.05, 0.5))  # Shift right
-        ax._legend.set_loc("center left")  # Anchor on left of the legend box
+        # ax._legend.set_title("RL Algorithm")
+        # ax._legend.get_title().set_fontsize(12)  # Correct way to set title font size
+
+        # ax._legend.set_bbox_to_anchor((0.5, -0.05))  # Shift right
+        # ax._legend.set_loc("lower center")  # Anchor on left of the legend box
+        # ax.legend._legend_box._ncols = 5
+
         # Optional: adjust font sizes
         # ax._legend.set_title_fontsize(14)
-        for text in ax._legend.texts:
-            text.set_fontsize(12)
+        # for text in ax._legend.texts:
+        #     text.set_fontsize(8)
 
-        # plt.grid(True, linestyle='--', alpha=0.5)
+        # Extract handles and labels from original legend
+        handles = ax._legend.legend_handles
+        labels = [t.get_text() for t in ax._legend.texts]
+        print(handles)
+        print(labels)
+
+        # Remove the default legend
+        ax._legend.remove()
+
+        plt.legend(handles, labels,
+                   title="RL Algorithm",
+                   ncol=5,
+                   loc='upper center',
+                   bbox_to_anchor=(0, 6.2),
+                   fontsize=8,
+                   title_fontsize=12)
+
+        #plt.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
         plt.savefig("seaborn_pairplot.pdf", bbox_inches="tight", dpi=250)
 
@@ -320,22 +344,48 @@ def main():
                           markers=["o", "s", "v", "^", "D"],
                           palette=palette,
                           hue_order=hue_order,
+                          # height=1.75,
                           # corner=True,
                           # kind="hist",
                           )
+        # plt.legend(n_cols=3)
 
-        ax._legend.set_title("RL Algorithm")
-        ax._legend.get_title().set_fontsize(14)  # Correct way to set title font size
+        # Remove the original legend
+        # ax._legend.remove()
 
-        ax._legend.set_bbox_to_anchor((1.05, 0.5))  # Shift right
-        ax._legend.set_loc("center left")  # Anchor on left of the legend box
+        # ax._legend.set_title("RL Algorithm")
+        # ax._legend.get_title().set_fontsize(12)  # Correct way to set title font size
+
+        # ax._legend.set_bbox_to_anchor((0.5, -0.05))  # Shift right
+        # ax._legend.set_loc("lower center")  # Anchor on left of the legend box
+        # ax.legend._legend_box._ncols = 5
+
         # Optional: adjust font sizes
         # ax._legend.set_title_fontsize(14)
-        for text in ax._legend.texts:
-            text.set_fontsize(12)
+        # for text in ax._legend.texts:
+        #     text.set_fontsize(8)
+
+        # Extract handles and labels from original legend
+        handles = ax._legend.legend_handles
+        labels = [t.get_text() for t in ax._legend.texts]
+        print(handles)
+        print(labels)
+
+        # Remove the default legend
+        ax._legend.remove()
+
+
+        plt.legend(handles, labels,
+                   title="RL Algorithm",
+                   ncol=5,
+                   loc='upper center',
+                   bbox_to_anchor=(0, 4.7),
+                   fontsize=8,
+                   title_fontsize=12)
 
         # plt.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
+        # plt.subplots_adjust(bottom=0.2)
         plt.savefig("seaborn_pairplot.pdf", bbox_inches="tight", dpi=250)
 
     '''
