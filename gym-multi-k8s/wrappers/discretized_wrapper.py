@@ -37,14 +37,20 @@ class DiscretizerWrapper(Wrapper):
         result = self.env.reset(**kwargs)
         if isinstance(result, tuple) and len(result) > 1:
             obs, info = result
+            #print(f"Discretized observation: {self.discretize_obs(obs)}")
             return self.discretize_obs(obs), info
         else:
             obs = result
+            #print(f"Discretized observation: {self.discretize_obs(obs)}")
             info = {}
             return self.discretize_obs(obs), info
 
     def step(self, action):
         obs, reward, done, truncated, info = self.env.step(action)
+        #print(f"Discretized observation: {self.discretize_obs(obs)}")
+        #print(f"Discretized observation shape: {self.discretize_obs(obs).shape}")
+        #print(f"Discretized observation type: {self.discretize_obs(obs).dtype}")
+        #print(f"Reward: {reward}, Done: {done}, Truncated: {truncated}, Info: {info}")
         return self.discretize_obs(obs), reward, done, truncated, info
     
     @property

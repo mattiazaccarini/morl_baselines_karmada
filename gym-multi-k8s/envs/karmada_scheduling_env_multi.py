@@ -9,7 +9,7 @@ import pandas as pd
 
 from statistics import mean
 from envs.utils import DeploymentRequest, get_c2e_deployment_list, calculate_gini_coefficient, sort_dict_by_value, \
-    normalize, save_to_csv_multi
+    normalize, save_to_csv_multi, get_5gcore_deployment_list
 
 DEFAULT_FILE_NAME_RESULTS = "karmada_gym_multi_train_results"
 
@@ -107,7 +107,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         self.info = {}
         
         # Setting the experiment based on Cloud2Edge (C2E) deployments
-        self.deploymentList = get_c2e_deployment_list()
+        self.deploymentList = get_5gcore_deployment_list()
         self.deployment_request = None
 
         # Cluster type initialization, resource capacities based on cluster types
@@ -133,9 +133,6 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
             self.latency[n1] = mean(self.latency_matrix[n1])
 
-        
-        # Read the power consumption data from CSV file
-        #self.power_consumption_data = self.read_power_consumption()
 
         #Info and utilized for Gini coefficient calculation
         self.avg_load_served = np.zeros(num_clusters, dtype=np.float32)
@@ -143,9 +140,6 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         # Keep track of allocated resources
         self.allocated_cpu = self.np_random.uniform(low=0.0, high=0.2, size=num_clusters).astype(np.float32)
         self.allocated_memory = self.np_random.uniform(low=0.0, high=0.2, size=num_clusters).astype(np.float32)
-        
-        # Keep track of the total power consumption assuming that each node is of the same type
-        #self.power_consumption = self.calculate_power_consumption()
 
         # Keep track of free resources for deployment requests
         self.free_cpu = np.zeros(num_clusters, dtype=np.float32)
@@ -191,7 +185,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
             self.latency[n1] = mean(self.latency_matrix[n1])
 
         # Reset Deployment Data
-        self.deploymentList = get_c2e_deployment_list()
+        self.deploymentList = get_5gcore_deployment_list()
 
         self.avg_load_served = np.zeros(self.num_clusters, dtype=np.float32)
 
@@ -206,6 +200,8 @@ class KarmadaSchedulingEnvMulti(gym.Env):
 
         # Keep track of spreading actions
         self.deploy_ffd = 0  # First Fit Deployment
+        self.deploy_ffi = 0
+        self.deploy_bf1b1 = 0
         self.info = {}
 
         # return obs
@@ -391,7 +387,6 @@ class KarmadaSchedulingEnvMulti(gym.Env):
                 self.penalty = True
             else:
                 #logging.info('[Take Action] Divide FFI chosen... ')
-                print(f"[Take Action] Divide FFI chosen")
                 div = self.first_fit_decreasing_heuristic(self.deployment_request.num_replicas,
                                                           self.deployment_request.cpu_request,
                                                           self.deployment_request.memory_request,
@@ -460,7 +455,6 @@ class KarmadaSchedulingEnvMulti(gym.Env):
                 self.penalty = True
             else:
                 #logging.info('[Take Action] BF1B1 chosen... ')
-                print(f"[Take Action] BF1B1 chosen")
                 div = self.best_fit_heuristic_one_by_one(self.deployment_request.num_replicas,
                                                          self.deployment_request.cpu_request,
                                                          self.deployment_request.memory_request,
@@ -602,7 +596,7 @@ class KarmadaSchedulingEnvMulti(gym.Env):
         return False
     
     def deployment_generator(self):
-        deployment_list = get_c2e_deployment_list()
+        deployment_list = get_5gcore_deployment_list()
         n = self.np_random.integers(low=0, high=len(deployment_list))
         d = deployment_list[n - 1]
 
