@@ -73,9 +73,9 @@ def process_file(filepath, test_name, full_data):
 
 
 def main():
-    dir = 'results/power/'
+    dir = 'results/four/'
     output_dir = dir + 'processed/'
-    POWER= True
+    FOUR = True
 
     full_data = []
     for filename in os.listdir(dir):
@@ -92,7 +92,7 @@ def main():
     # Load your CSV file
     df = pd.read_csv(output_dir + "full.csv")
 
-    if not POWER:
+    if not FOUR:
         hue_order = ['DQN', 'PPO', 'PQL', 'GeoPQL', 'MPMOQ']  # ['DQN', 'PPO', 'PQL', 'Geometric', 'MPMOQ']
         # Generate the 'deep' palette with, say, 8 colors
         palette = sns.color_palette("deep", 8)
@@ -266,7 +266,7 @@ def main():
     plt.tight_layout()
     plt.savefig("seaborn_violin_gini.pdf", bbox_inches="tight", dpi=250)
 
-    if POWER:
+    if FOUR:
         plt.figure(figsize=(7, 5))
         sns.violinplot(
             data=df,
