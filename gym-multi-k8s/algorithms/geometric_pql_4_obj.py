@@ -1,4 +1,9 @@
-""" Geometric Pareto Q-Learning."""
+"""Geometric Pareto Q-Learning (4+ objective variant).
+
+Improved version that fixes critical bugs from the original implementation.
+This variant handles 4+ objectives using hyperplane fitting.
+See geometric_pql.py for the full list of fixes applied.
+"""
 
 import numbers
 from typing import Callable, List, Optional
@@ -15,11 +20,15 @@ from morl_baselines.common.utils import linearly_decaying_value
 
 
 class GeometricPQL4(MOAgent):
-    """Initialize the Geometric Pareto Q-learning algorithm.
+    """Geometric Pareto Q-learning for 4+ objectives.
 
-        For each state-action pair, we maintain 
-        - D[(s,a)]: list of non-dominated vectors [(q1, q2), ...]
-        - theta[(s,a)]: vector of three coefficients for the polynomial f(x) = a0 + a1x+a2x^2
+    Extends standard PQL with hyperplane fitting of the Pareto front.
+    For each state-action pair we maintain:
+      - non_dominated[s][a]: set of Pareto-optimal next-state vectors (like PQL)
+      - theta[(s,a)]: fitted hyperplane model coefficients
+
+    The hyperplane model is used to generate interpolated candidate points
+    between discovered Pareto solutions, enriching the front faster.
     """
 
     def __init__(
@@ -31,12 +40,12 @@ class GeometricPQL4(MOAgent):
         epsilon_decay_steps: int = 100000,
         final_epsilon: float = 0.1,
         seed: Optional[int] = None,
+        n_interpolated: int = 5,
         project_name: str = "MORL-Baselines",
-        experiment_name: str = "Pareto Q-Learning",
+        experiment_name: str = "Geometric Pareto Q-Learning (4-obj)",
         wandb_entity: Optional[str] = None,
         log: bool = True,
     ):
-        
         super().__init__(env, seed=seed)
         # Learning parameters
         self.gamma = gamma
@@ -44,6 +53,7 @@ class GeometricPQL4(MOAgent):
         self.initial_epsilon = initial_epsilon
         self.epsilon_decay_steps = epsilon_decay_steps
         self.final_epsilon = final_epsilon
+        self.n_interpolated = n_interpolated
 
         # Algorithm setup
         self.ref_point = ref_point
@@ -74,29 +84,25 @@ class GeometricPQL4(MOAgent):
         self.num_objectives = self.env.unwrapped.reward_space.shape[0]
         self.counts = np.zeros((self.num_states, self.num_actions))
 
-        ''' Instead of using a non-dominated list of sets, we maintain:
-        - D[(s,a)]: list of non-dominated point for (s,a)
-        - theta[(s,a)]: vector [a0, a1, a2] (quadratic) for our fit
-        '''
-        self.D: dict[tuple[int, int], List[tuple[float, float, float]]]= {
-            (s, a): [] for s in range(self.num_states) for a in range(self.num_actions)
-        }
-        self.theta: dict[tuple[int, int], np.ndarray] = {
-            (s, a): np.zeros(3, dtype=np.float32) for s in range(self.num_states) for a in range(self.num_actions)
-        }
-
+        # Core PQL structure: non-dominated sets per (state, action)
         self.non_dominated = [
-            [{tuple(np.zeros(self.num_objectives))} for _ in range(self.num_actions)] for _ in range(self.num_states)
+            [{tuple(np.zeros(self.num_objectives))} for _ in range(self.num_actions)]
+            for _ in range(self.num_states)
         ]
         self.avg_reward = np.zeros((self.num_states, self.num_actions, self.num_objectives))
+
+        # Geometric extension: fitted hyperplane coefficients per (state, action)
+        # theta has D coefficients: a0 + a1*x_1 + ... + a_{D-1}*x_{D-1} ≈ x_D
+        self.theta: dict[tuple[int, int], np.ndarray] = {
+            (s, a): np.zeros(self.num_objectives, dtype=np.float32)
+            for s in range(self.num_states)
+            for a in range(self.num_actions)
+        }
+
         # Logging
         self.project_name = project_name
         self.experiment_name = experiment_name
         self.log = log
-
-        #self.ref_point_dynamic = np.array(ref_point, dtype=np.float32)  # Used to track the reference point for hypervolume computation
-        #self.max_values_seen = np.array(ref_point, dtype=np.float32) # Used to track the maximum values seen in the environment to update the ref point
-        #self.hv_point_margins = np.array([1.0, 1.0, 0.1], dtype=np.float32)  # Used to compute the hypervolume reference point
 
         if self.log:
             self.setup_wandb(
@@ -105,101 +111,86 @@ class GeometricPQL4(MOAgent):
                 entity=wandb_entity,
             )
 
+    # ------------------------------------------------------------------ #
+    #  Geometric fitting methods                                          #
+    # ------------------------------------------------------------------ #
 
-    def _fit_quadratic(self, points: List[tuple[float, float]]) -> np.ndarray:
-        '''
-        Recieves a list of points and returns theta = [a0, a1, a2] that minimizes
-        || Xtheta - Y ||^2 where y = a0 + a1x + a2x^2
-        
-        '''
-        if len(points) == 0:
-            print("No points to fit a quadratic function, returning zeros.")
-            return np.zeros(3, dtype=np.float32)
-        
-        X = []
-        Y = []
-        for x, y in points:
-            X.append([1.0, x, x**2])
-            Y.append(y)
-        
-        X = np.array(X, dtype=np.float32) # shape (n, 3)
-        Y = np.array(Y, dtype=np.float32) # shape (n,)
+    def _fit_hyperplane(self, points: List[tuple]) -> np.ndarray:
+        """Fit a hyperplane to D-dimensional points.
 
-        # Solve the least squares problem
-        theta, *_ = np.linalg.lstsq(X, Y, rcond=None)
-        return theta.astype(np.float32)
-    
+        Fits: x_D = a0 + a1*x_1 + ... + a_{D-1}*x_{D-1}
 
-    def _fit_hyperplane(self, points: List[tuple[float, ...]]) -> np.ndarray:
+        Args:
+            points: List of D-dimensional tuples.
+
+        Returns:
+            theta coefficients of length D.
         """
-        Receives a list of points of dimension D, each  (r0,r1,...,r_{D-2}, r_{D-1}),
-        and computes theta of length D: a0 + a1*r0 + ... + a_{D-1}*r_{D-2} ≈ r_{D-1}.
-        """
-        if not points:
-            # returns zeros: one constant coefficient + D-1 weights
-            return np.zeros(len(points[0]), dtype=np.float32)
+        if len(points) < 2:
+            return np.zeros(self.num_objectives, dtype=np.float32)
 
         pts = np.array(points, dtype=np.float32)
         D = pts.shape[1]
-        # the first column of X is 1.0 (constant term), then all coordinates except the last
-        X = np.hstack([np.ones((len(pts),1), dtype=np.float32),
-                       pts[:, :D-1]])
-        Z = pts[:, D-1]   # last coordinate
+        X = np.hstack([np.ones((len(pts), 1), dtype=np.float32), pts[:, : D - 1]])
+        Z = pts[:, D - 1]
         theta, *_ = np.linalg.lstsq(X, Z, rcond=None)
         return theta.astype(np.float32)
-    
-    
-    def calc_non_dominated(self, state: int) -> List[tuple]:
-        all_pts = []
-        for action in range(self.num_actions):
-            all_pts.extend(self.D[(state, action)])
-        if not all_pts:
-            return []
 
-        arr = np.array(all_pts, dtype=np.float32)
-        nd = get_non_dominated(arr)  # Get the non-dominated points
-        return [tuple(pt) for pt in nd]
-    
-    def _update_dataset_and_fit(self, state: int, action: int, new_point: tuple[float, float]):
-        '''
-        1. Check discrete domain: if in D[(state, action)] there is a point that corresponds to new_point, discard it.
-        2. If not, insert new_pt into the dataset D[(state, action)].
-        3. Remove all points that are dominated by new_point in D[(state, action)].
-        4. Fit the new plane on D[(state, action)] and update theta[(state, action)].
-        '''
-        key = (state, action)
-        pts = self.D[key] # Current list of non-dominated points for (state, action)
+    def _generate_interpolated_points(self, state: int, action: int) -> List[tuple]:
+        """Use the fitted hyperplane to generate interpolated candidate points.
 
-        # 1. Check if new_point is dominated by any point in D[(state, action)]
-    
-        # 1. If new point not already present, insert it into the dataset
-        if new_point not in pts:
-            pts.append(new_point)
+        Samples points along the fitted hyperplane between the min and max values
+        of each dimension in the existing non-dominated set.
 
-        # 2. Remove all points that are dominated by new_point
-        arrs = [np.array(pt, dtype=np.float32) for pt in pts]
-        nd = get_non_dominated(arrs)  # Get the non-dominated points
-        cleaned_pts = []
-        for p in nd:
-            if isinstance(p, np.ndarray):
-                cleaned_pts.append(tuple(p.tolist()))
-            else:
-                cleaned_pts.append(tuple(p))  # Convert back to tuples
-
-        # 3. Fit the new plane on D[(state, action)] and update theta[(state, action)]
-        theta_new = self._fit_hyperplane(cleaned_pts)
-        #theta_new = self._fit_quadratic(cleaned_pts)
-
-        self.D[key] = cleaned_pts
-        self.theta[key] = theta_new
-
-
-    def get_config(self) -> dict:
-        """Get the configuration dictionary.
+        Args:
+            state: The state.
+            action: The action.
 
         Returns:
-            Dict: A dictionary of parameters and values.
+            List of interpolated point tuples.
         """
+        theta = self.theta[(state, action)]
+        nd_set = self.non_dominated[state][action]
+        pts = list(nd_set)
+
+        if len(pts) < 3 or np.allclose(theta, 0):
+            return []
+
+        arr = np.array(pts, dtype=np.float32)
+        D = arr.shape[1]
+
+        # Compute Q-set points for the range
+        nd_array = np.array(pts, dtype=np.float32)
+        q_array = self.avg_reward[state, action] + self.gamma * nd_array
+
+        # For each free dimension (0..D-2), sample between min and max
+        mins = q_array.min(axis=0)
+        maxs = q_array.max(axis=0)
+        ranges = maxs[:D - 1] - mins[:D - 1]
+
+        if np.any(ranges < 1e-8):
+            return []
+
+        # Sample on a grid in the free dimensions
+        n_per_dim = max(2, int(self.n_interpolated ** (1.0 / max(1, D - 1))))
+        grids = [np.linspace(mins[d], maxs[d], n_per_dim + 2)[1:-1] for d in range(D - 1)]
+        mesh = np.meshgrid(*grids, indexing="ij")
+        coords = np.stack([m.ravel() for m in mesh], axis=1)  # shape (n_pts, D-1)
+
+        interpolated = []
+        for row in coords:
+            # theta = [a0, a1, ..., a_{D-1}]
+            last_dim = theta[0] + np.dot(theta[1:], row)
+            pt = tuple(row.tolist()) + (float(last_dim),)
+            interpolated.append(pt)
+
+        return interpolated
+
+    # ------------------------------------------------------------------ #
+    #  Core PQL logic (fixed)                                              #
+    # ------------------------------------------------------------------ #
+
+    def get_config(self) -> dict:
         return {
             "env_id": self.env.unwrapped.spec.id,
             "ref_point": list(self.ref_point),
@@ -208,17 +199,27 @@ class GeometricPQL4(MOAgent):
             "epsilon_decay_steps": self.epsilon_decay_steps,
             "final_epsilon": self.final_epsilon,
             "seed": self.seed,
+            "n_interpolated": self.n_interpolated,
         }
 
-    def score_pareto_cardinality(self, state: int):
-        """Compute the action scores based upon the Pareto cardinality metric.
+    def get_q_set(self, state: int, action: int):
+        """Compute the Q-set for a given state-action pair.
 
-        Args:
-            state (int): The current state.
-
-        Returns:
-            ndarray: A score per action.
+        Q(s,a) = avg_reward(s,a) + gamma * non_dominated(s,a)
+        Computed on-the-fly so that avg_reward updates are always reflected.
         """
+        nd_array = np.array(list(self.non_dominated[state][action]))
+        q_array = self.avg_reward[state, action] + self.gamma * nd_array
+        q_set = {tuple(vec) for vec in q_array}
+
+        # Geometric enrichment: add interpolated points from the fitted model
+        interpolated = self._generate_interpolated_points(state, action)
+        for pt in interpolated:
+            q_set.add(pt)
+
+        return q_set
+
+    def score_pareto_cardinality(self, state: int):
         q_sets = [self.get_q_set(state, action) for action in range(self.num_actions)]
         candidates = set().union(*q_sets)
         non_dominated = get_non_dominated(candidates)
@@ -232,52 +233,36 @@ class GeometricPQL4(MOAgent):
         return scores
 
     def score_hypervolume(self, state: int):
-        """Compute the action scores based upon the hypervolume metric.
+        q_sets = [self.get_q_set(state, action) for action in range(self.num_actions)]
+        action_scores = [hypervolume(self.ref_point, list(q_set)) for q_set in q_sets]
+        return np.array(action_scores, dtype=np.float32)
 
-        Args:
-            state (int): The current state.
-
-        Returns:
-            ndarray: A score per action.
-        """
-        scores = []
-        for a in range(self.num_actions):
-            pts = list(self.get_q_set(state, a))
-            if len(pts) == 0:
-                scores.append(0.0)
-            else:
-                scores.append(hypervolume(self.ref_point, [np.array(p) for p in pts]))
-        return np.array(scores, dtype=np.float32)
-
-    def get_q_set(self, state: int, action: int):
-        """Compute the Q-set for a given state-action pair.
-
-        Args:
-            state (int): The current state.
-            action (int): The action.
-
-        Returns:
-            A set of Q vectors.
-        """
-        key = (state, action)
-        return set(self.D[key])
-    
     def select_action(self, state: int, score_func: Callable):
-        """Select an action in the current state.
-
-        Args:
-            state (int): The current state.
-            score_func (callable): A function that returns a score per action.
-
-        Returns:
-            int: The selected action.
-        """
         if self.np_random.uniform(0, 1) < self.epsilon:
             return self.np_random.integers(self.num_actions)
         else:
             action_scores = score_func(state)
-            return self.np_random.choice(np.argwhere(action_scores == np.max(action_scores)).flatten())
+            return self.np_random.choice(
+                np.argwhere(action_scores == np.max(action_scores)).flatten()
+            )
 
+    def calc_non_dominated(self, state: int):
+        """Get the non-dominated vectors in a given state."""
+        candidates = set().union(
+            *[self.get_q_set(state, action) for action in range(self.num_actions)]
+        )
+        return get_non_dominated(candidates)
+
+    def _update_geometric_fit(self, state: int, action: int):
+        """Refit the hyperplane model for a (state, action) pair."""
+        pts = list(self.non_dominated[state][action])
+        if len(pts) >= 2:
+            nd_array = np.array(pts, dtype=np.float32)
+            q_array = self.avg_reward[state, action] + self.gamma * nd_array
+            q_pts = [tuple(vec) for vec in q_array]
+            self.theta[(state, action)] = self._fit_hyperplane(q_pts)
+        else:
+            self.theta[(state, action)] = np.zeros(self.num_objectives, dtype=np.float32)
 
     def train(
         self,
@@ -289,28 +274,17 @@ class GeometricPQL4(MOAgent):
         log_every: Optional[int] = 1000,
         action_eval: Optional[str] = "hypervolume",
     ):
-        """Learn the Pareto front.
-
-        Args:
-            total_timesteps (int, optional): The number of episodes to train for.
-            eval_env (gym.Env): The environment to evaluate the policies on.
-            eval_ref_point (ndarray, optional): The reference point for the hypervolume metric during evaluation. If none, use the same ref point as training.
-            known_pareto_front (List[ndarray], optional): The optimal Pareto front, if known.
-            num_eval_weights_for_eval (int): Number of weights use when evaluating the Pareto front, e.g., for computing expected utility.
-            log_every (int, optional): Log the results every number of timesteps. (Default value = 1000)
-            action_eval (str, optional): The action evaluation function name. (Default value = 'hypervolume')
-
-        Returns:
-            Set: The final Pareto front.
-        """
+        """Learn the Pareto front."""
         if action_eval == "hypervolume":
             score_func = self.score_hypervolume
         elif action_eval == "pareto_cardinality":
             score_func = self.score_pareto_cardinality
         else:
             raise Exception("No other method implemented yet")
+
         if ref_point is None:
             ref_point = self.ref_point
+
         if self.log:
             self.register_additional_config(
                 {
@@ -325,7 +299,6 @@ class GeometricPQL4(MOAgent):
 
         while self.global_step < total_timesteps:
             state, _ = self.env.reset()
-            print(f"Starting new episode at global step {self.global_step}")
             if not isinstance(state, int):
                 state = int(np.ravel_multi_index(state, self.env_shape))
             terminated = False
@@ -335,50 +308,39 @@ class GeometricPQL4(MOAgent):
                 action = self.select_action(state, score_func)
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
                 self.global_step += 1
-                print(f"Step {self.global_step}: State {state}, Action {action}, Next State {next_state}, Reward {reward}")
+
                 if not isinstance(next_state, int):
                     next_state = int(np.ravel_multi_index(next_state, self.env_shape))
 
+                # 1. Update visit count and running average reward
                 self.counts[state, action] += 1
+                self.avg_reward[state, action] += (
+                    reward - self.avg_reward[state, action]
+                ) / self.counts[state, action]
+
+                # 2. Update non-dominated set from next_state (like PQL)
                 self.non_dominated[state][action] = self.calc_non_dominated(next_state)
-                #print(f"Updated non-dominated set for state {next_state}, action {action}: {self.non_dominated[next_state][action]}")
-                self.avg_reward[state, action] += (reward - self.avg_reward[state, action]) / self.counts[state, action]
-                #print(f"Updated average reward for state {state}, action {action}: {self.avg_reward[state, action]}")
-                # 2. Compute the new vector for (state, action)
-                #    Q_new = avg_reward[state,action] + γ * q_next   per ciascun q_next
-                # q_next scans the non-dominated points in next state
-                # Consider D[(next_state, action)] and use it to compute the new possible Q_new, then filter them via
-                # filter_and_update_dataset_and_fit function
 
-                for a in range(self.num_actions):
-                    for q_next in self.D[(next_state, a)]:
-                        # Compute the new vector
-                        q_next = np.array(q_next, dtype=np.float32)
-                        q_new = tuple((self.avg_reward[state, action] + self.gamma * q_next).tolist())
-                        # Update the dataset and fit the new quadratic
-                        self._update_dataset_and_fit(state, action, q_new)
+                # 3. Refit the geometric model
+                self._update_geometric_fit(state, action)
 
-                # If D[(next_state, action)] is empty, we can just add immediate reward
-                if len(self.D[next_state, 0]) == 0:
-                    q_new_imm = tuple(self.avg_reward[next_state, action].tolist())
-                    self._update_dataset_and_fit(state, action, q_new_imm)
-
-                # Next state and logs
+                # 4. Transition
                 state = next_state
+
+                # 5. Logging
                 if self.log and self.global_step % log_every == 0:
                     wandb.log({"global_step": self.global_step})
                     pf = self._eval_all_policies(eval_env)
-                    #print(f"Evaluated Pareto front at step {self.global_step}: {pf}")
                     log_all_multi_policy_metrics(
                         current_front=pf,
-                        hv_ref_point=ref_point,  # Use the static ref point for evaluation
-                        #hv_ref_point=self.max_values_seen + self.hv_point_margins,
+                        hv_ref_point=ref_point,
                         reward_dim=self.reward_dim,
                         global_step=self.global_step,
                         n_sample_weights=num_eval_weights_for_eval,
                         ref_front=known_pareto_front,
                     )
 
+            # Decay epsilon at the end of each episode
             self.epsilon = linearly_decaying_value(
                 self.initial_epsilon,
                 self.epsilon_decay_steps,
@@ -390,20 +352,12 @@ class GeometricPQL4(MOAgent):
         return self.get_local_pcs(state=0)
 
     def _eval_all_policies(self, env: gym.Env) -> List[np.ndarray]:
-        """Evaluate all learned policies by tracking them."""
         pf = []
         for vec in self.get_local_pcs(state=0):
             pf.append(self.track_policy(vec, env))
         return pf
 
     def track_policy(self, vec, env: gym.Env, tol=1e-3):
-        """Track a policy from its return vector.
-
-        Args:
-            vec (array_like): The return vector to track.
-            env (gym.Env): The environment to track the policy in.
-            tol (float, optional): The tolerance for the return vector. (Default value = 1e-3)
-        """
         target = np.array(vec)
         state, _ = env.reset()
         terminated = False
@@ -421,8 +375,8 @@ class GeometricPQL4(MOAgent):
 
             for action in range(self.num_actions):
                 im_rew = self.avg_reward[state, action]
-                for q in self.D[(state, action)]:
-                    q = np.array(q, dtype=np.float32)
+                for q in self.non_dominated[state][action]:
+                    q = np.array(q)
                     dist = np.sum(np.abs(self.gamma * q + im_rew - target))
                     if dist < closest_dist:
                         closest_dist = dist
@@ -437,28 +391,15 @@ class GeometricPQL4(MOAgent):
                     break
 
             state, reward, terminated, truncated, _ = env.step(closest_action)
-            #print(f"Track policy: Taking action {closest_action} in state {state}, received reward {reward}, new target {new_target}")
             total_rew += current_gamma * reward
             current_gamma *= self.gamma
-            #self.max_values_seen = np.maximum(self.max_values_seen, total_rew)
-            #self.ref_point_dynamic = self.max_values_seen + self.hv_point_margins
             target = new_target
 
         return total_rew
 
     def get_local_pcs(self, state: int = 0):
-        """Collect the local PCS in a given state.
-
-        Args:
-            state (int): The state to get a local PCS for. (Default value = 0)
-
-        Returns:
-            Set: A set of Pareto optimal vectors.
-        """
         q_sets = [self.get_q_set(state, action) for action in range(self.num_actions)]
         candidates = set().union(*q_sets)
-        #print(f"Local PCS for state {state}: {candidates}")
-        #print(f"Non-dominated candidates: {get_non_dominated(candidates)}")
+        if not candidates:
+            return []
         return get_non_dominated(candidates)
-
-
