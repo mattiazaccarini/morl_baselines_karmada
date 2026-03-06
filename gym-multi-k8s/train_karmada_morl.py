@@ -2,8 +2,9 @@
 import envs
 import gymnasium as gym
 import mo_gymnasium as mo_gymnasium
-from morl_baselines.multi_policy.pareto_q_learning.pql import PQL
-from morl_baselines.multi_policy.pareto_q_learning.geometric_pql import GeometricPQL
+#from morl_baselines.multi_policy.pareto_q_learning.pql import PQL
+from algorithms.pql import PQL
+from algorithms.geometric_pql import GeometricPQL
 from wrappers.discretized_wrapper import DiscretizerWrapper
 
 import os, pickle, wandb
@@ -14,26 +15,30 @@ import time
 num_envs = 4
 
 GAMMA = 0.99
-TOTAL_TIMESTEPS = 10000
+TOTAL_TIMESTEPS = 30000
 EVAL_FREQ = 500
 
 if __name__ == "__main__":
-    env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, max_replicas=16, file_results_name="karmada_gym_multi_train_results", is_eval_env=False)
-    env = DiscretizerWrapper(env, n_bins=8) # Not required for MOQLearning
-    ref_point = np.array([600, 10, 0.9])
-    #env = mo_gymnasium.make("deep-sea-treasure-v0")
+    #env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, max_replicas=16, file_results_name="karmada_gym_multi_train_results", is_eval_env=False)
+    #env = DiscretizerWrapper(env, n_bins=8) # Not required for MOQLearning
+    #ref_point = np.array([-0.1, -0.1, -0.1])  # Example reference point for hypervolume calculation
+    env = mo_gymnasium.make("resource-gathering-v0")  # Example environment, replace with your actual environment
+  
+    
+    #eval_env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, max_replicas=16, file_results_name="karmada_gym_multi_eval_results", is_eval_env=True)
+    #eval_env = DiscretizerWrapper(eval_env, n_bins=8) # Not required for MOQLearning
+    eval_env = mo_gymnasium.make("resource-gathering-v0")  # Example evaluation environment, replace with your actual environment
 
-    eval_env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, max_replicas=16, file_results_name="karmada_gym_multi_eval_results", is_eval_env=True)
-    eval_env = DiscretizerWrapper(eval_env, n_bins=8) # Not required for MOQLearning
-    #eval_env = mo_gymnasium.make("deep-sea-treasure-v0")
-
+   
+    
     #os.makedirs("checkpoints", exist_ok=True)
     #model_path = ("checkpoints/karmada_morl_pql.pkl")
 
 
     #agent = PQL(
     #    env=env,
-    #    ref_point=ref_point,  # used to compute hypervolume
+    #    ref_point=np.array([-1.0, -1001.0]),  # used to compute hypervolume
+    #    #ref_point=np.array([0.0, 0.0, 0.0]),  # Example reference point for hypervolume calculation
     #    gamma=GAMMA,
     #    log=True,  # use weights and biases to see the results!
     #)
@@ -41,17 +46,19 @@ if __name__ == "__main__":
     agent = GeometricPQL(
         env,
         gamma=GAMMA,
-        #initial_epsilon=1.0,
-        ref_point=ref_point,
-        #epsilon_decay_steps=100000,
-        #final_epsilon=0.1,
+        initial_epsilon=1.0,
+        #ref_point=np.array([0.0, 0.0]),
+        ref_point=np.array([0.0, 0.0, 0.0]),
+        #ref_point=ref_point,  # used to compute hypervolume
+        epsilon_decay_steps=10000,
+        final_epsilon=0.1,
         log=True, # use weights and biases to see the results!
     )
 
     #agent = MOQLearning(env, weights=np.array([0.33, 0.33, 0.33]))
 
     #agent.train(total_timesteps=TOTAL_TIMESTEPS, eval_env=eval_env, start_time=time.time()) # Use this for MOQLearning
-    agent.train(total_timesteps=TOTAL_TIMESTEPS, eval_env=eval_env, log_every=1000)#, action_eval="pareto_cardinality") # Use this for PQL and GeometricPQL
+    agent.train(total_timesteps=TOTAL_TIMESTEPS, eval_env=eval_env, log_every=5000)#, action_eval="pareto_cardinality") # Use this for PQL and GeometricPQL
     
     #state_dict = {
     #        "avg_reward":      agent.avg_reward,

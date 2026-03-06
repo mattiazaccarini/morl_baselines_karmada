@@ -10,6 +10,8 @@ Improved version that fixes critical bugs from the original implementation:
 """
 
 import numbers
+import time as time_module
+from collections import defaultdict
 from typing import Callable, List, Optional
 
 import gymnasium as gym
@@ -115,16 +117,38 @@ class GeometricPQL(MOAgent):
         # Geometric extension: fitted model coefficients per (state, action)
         # For 2-obj: theta = [a0, a1, a2] for y = a0 + a1*x + a2*x^2
         # For 3-obj: theta = [a0, a1, a2] for z = a0 + a1*x + a2*y
-        self.theta: dict[tuple[int, int], np.ndarray] = {
-            (s, a): np.zeros(3, dtype=np.float32)
-            for s in range(self.num_states)
-            for a in range(self.num_actions)
-        }
+        # Lazily allocated: only visited (s,a) pairs get theta entries,
+        # keeping memory proportional to visited pairs rather than the full state-action space.
+        self.theta: defaultdict[tuple[int, int], np.ndarray] = defaultdict(
+            lambda: np.zeros(3, dtype=np.float32)
+        )
 
         # Logging
         self.project_name = project_name
         self.experiment_name = experiment_name
         self.log = log
+
+        # Computational metrics tracking
+        self.comp_metrics = {
+            "global_step": [],
+            "step_time_ms": [],              # wall-clock time per step (ms)
+            "calc_nd_time_ms": [],           # time for calc_non_dominated (ms)
+            "get_q_set_time_ms": [],         # time for get_q_set calls (ms)
+            "geo_fit_time_ms": [],           # time for geometric fitting (ms)
+            "total_nd_vectors": [],          # total non-dominated vectors across all (s,a)
+            "mean_nd_set_size": [],          # mean |D_{s,a}| across visited (s,a) pairs
+            "max_nd_set_size": [],           # max |D_{s,a}|
+            "nd_memory_bytes": [],           # memory of non_dominated structure (bytes)
+            "theta_memory_bytes": [],        # memory of theta dict (bytes)
+            "total_memory_bytes": [],        # total algorithm memory (bytes)
+            "visited_sa_pairs": [],          # number of (s,a) pairs visited so far
+            "theta_params_count": [],        # total number of theta parameters
+        }
+        self._step_time_accum = 0.0
+        self._calc_nd_time_accum = 0.0
+        self._get_q_set_time_accum = 0.0
+        self._geo_fit_time_accum = 0.0
+        self._steps_since_last_log = 0
 
         if self.log:
             self.setup_wandb(
@@ -132,6 +156,106 @@ class GeometricPQL(MOAgent):
                 experiment_name=self.experiment_name,
                 entity=wandb_entity,
             )
+
+    # ------------------------------------------------------------------ #
+    #  Computational metrics                                               #
+    # ------------------------------------------------------------------ #
+
+    def _compute_nd_stats(self):
+        """Compute non-dominated set statistics and memory in a single pass.
+        
+        Returns:
+            tuple: (total_nd_vectors, visited_sa_pairs, visited_nd_sizes, nd_memory_bytes)
+        """
+        # Python object overhead constants (CPython 3.10, 64-bit)
+        SIZEOF_LIST = 56
+        SIZEOF_LIST_PTR = 8
+        SIZEOF_SET_BASE = 216
+        SIZEOF_SET_ENTRY = 8
+        SIZEOF_TUPLE_BASE = 40
+        SIZEOF_FLOAT = 28
+        SIZEOF_TUPLE_PTR = 8
+
+        total_nd = 0
+        visited = 0
+        visited_nd_sizes = []
+        for s in range(self.num_states):
+            for a in range(self.num_actions):
+                sz = len(self.non_dominated[s][a])
+                total_nd += sz
+                if self.counts[s, a] > 0:
+                    visited += 1
+                    visited_nd_sizes.append(sz)
+
+        num_sa = self.num_states * self.num_actions
+        mem = (SIZEOF_LIST + self.num_states * SIZEOF_LIST_PTR +
+               self.num_states * (SIZEOF_LIST + self.num_actions * SIZEOF_LIST_PTR) +
+               num_sa * SIZEOF_SET_BASE)
+        per_vector = (SIZEOF_SET_ENTRY + SIZEOF_TUPLE_BASE + 
+                      self.num_objectives * (SIZEOF_TUPLE_PTR + SIZEOF_FLOAT))
+        mem += total_nd * per_vector
+
+        return total_nd, visited, visited_nd_sizes, mem
+
+    def _estimate_theta_memory(self):
+        """Estimate memory of theta defaultdict."""
+        SIZEOF_DICT_BASE = 64
+        SIZEOF_DICT_ENTRY = 8
+        SIZEOF_KEY_TUPLE = 56       # tuple of 2 ints
+        SIZEOF_NDARRAY_BASE = 112   # sys.getsizeof(np.zeros(3, dtype=np.float32))
+        SIZEOF_FLOAT32_x3 = 12     # 3 * 4 bytes
+
+        n = len(self.theta)
+        mem = SIZEOF_DICT_BASE + n * (SIZEOF_DICT_ENTRY + SIZEOF_KEY_TUPLE + SIZEOF_NDARRAY_BASE + SIZEOF_FLOAT32_x3)
+        return mem
+
+    def _collect_comp_metrics(self):
+        """Collect and store computational metrics at the current timestep."""
+        total_nd, visited, visited_nd_sizes, nd_mem = self._compute_nd_stats()
+
+        # Theta memory estimation (fast)
+        theta_mem = self._estimate_theta_memory()
+        total_mem = (
+            nd_mem
+            + theta_mem
+            + self.avg_reward.nbytes
+            + self.counts.nbytes
+        )
+
+        # Count total theta parameters (only for pairs that have theta entries)
+        theta_count = sum(arr.size for arr in self.theta.values())
+
+        # Average timing over steps since last log
+        n = max(1, self._steps_since_last_log)
+        avg_step_time = self._step_time_accum / n * 1000  # ms
+        avg_calc_nd_time = self._calc_nd_time_accum / n * 1000
+        avg_get_q_set_time = self._get_q_set_time_accum / n * 1000
+        avg_geo_fit_time = self._geo_fit_time_accum / n * 1000
+
+        self.comp_metrics["global_step"].append(self.global_step)
+        self.comp_metrics["step_time_ms"].append(avg_step_time)
+        self.comp_metrics["calc_nd_time_ms"].append(avg_calc_nd_time)
+        self.comp_metrics["get_q_set_time_ms"].append(avg_get_q_set_time)
+        self.comp_metrics["geo_fit_time_ms"].append(avg_geo_fit_time)
+        self.comp_metrics["total_nd_vectors"].append(total_nd)
+        self.comp_metrics["mean_nd_set_size"].append(
+            float(np.mean(visited_nd_sizes)) if visited_nd_sizes else 0.0
+        )
+        self.comp_metrics["max_nd_set_size"].append(
+            max(visited_nd_sizes) if visited_nd_sizes else 0
+        )
+        self.comp_metrics["nd_memory_bytes"].append(nd_mem)
+        self.comp_metrics["theta_memory_bytes"].append(theta_mem)
+        self.comp_metrics["total_memory_bytes"].append(total_mem)
+        self.comp_metrics["visited_sa_pairs"].append(visited)
+        self.comp_metrics["theta_params_count"].append(theta_count)
+
+        # Reset accumulators
+        self._step_time_accum = 0.0
+        self._calc_nd_time_accum = 0.0
+        self._get_q_set_time_accum = 0.0
+        self._geo_fit_time_accum = 0.0
+        self._steps_since_last_log = 0
 
     # ------------------------------------------------------------------ #
     #  Geometric fitting methods                                          #
@@ -223,7 +347,9 @@ class GeometricPQL(MOAgent):
         Returns:
             List of interpolated point tuples.
         """
-        theta = self.theta[(state, action)]
+        theta = self.theta.get((state, action))
+        if theta is None:
+            return []
         nd_set = self.non_dominated[state][action]
         pts = list(nd_set)
 
@@ -291,6 +417,7 @@ class GeometricPQL(MOAgent):
         Returns:
             A set of Q vectors (tuples).
         """
+        t0 = time_module.perf_counter()
         nd_array = np.array(list(self.non_dominated[state][action]))
         q_array = self.avg_reward[state, action] + self.gamma * nd_array
         q_set = {tuple(vec) for vec in q_array}
@@ -300,6 +427,7 @@ class GeometricPQL(MOAgent):
         for pt in interpolated:
             q_set.add(pt)
 
+        self._get_q_set_time_accum += time_module.perf_counter() - t0
         return q_set
 
     def score_pareto_cardinality(self, state: int):
@@ -422,6 +550,8 @@ class GeometricPQL(MOAgent):
             truncated = False
 
             while not (terminated or truncated) and self.global_step < total_timesteps:
+                step_start = time_module.perf_counter()
+
                 action = self.select_action(state, score_func)
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
                 self.global_step += 1
@@ -436,19 +566,28 @@ class GeometricPQL(MOAgent):
                 ) / self.counts[state, action]
 
                 # 2. Update non-dominated set for (state, action) from next_state
-                #    This stores the non-dominated Q-vectors of the NEXT state,
-                #    exactly like standard PQL. Q-sets are computed on-the-fly via
-                #    get_q_set() = avg_reward + gamma * non_dominated.
+                #    Timed: calc_non_dominated
+                t0 = time_module.perf_counter()
                 self.non_dominated[state][action] = self.calc_non_dominated(next_state)
+                self._calc_nd_time_accum += time_module.perf_counter() - t0
 
                 # 3. Refit the geometric model for (state, action)
+                #    Timed: geometric fitting
+                t0 = time_module.perf_counter()
                 self._update_geometric_fit(state, action)
+                self._geo_fit_time_accum += time_module.perf_counter() - t0
 
                 # 4. Transition
                 state = next_state
 
+                self._step_time_accum += time_module.perf_counter() - step_start
+                self._steps_since_last_log += 1
+
                 # 5. Logging
                 if self.log and self.global_step % log_every == 0:
+                    # Collect computational metrics before logging
+                    self._collect_comp_metrics()
+
                     wandb.log({"global_step": self.global_step})
                     pf = self._eval_all_policies(eval_env)
                     log_all_multi_policy_metrics(
@@ -468,6 +607,10 @@ class GeometricPQL(MOAgent):
                 0,
                 self.final_epsilon,
             )
+
+        # Final metrics collection
+        if self._steps_since_last_log > 0:
+            self._collect_comp_metrics()
 
         return self.get_local_pcs(state=0)
 

@@ -1,6 +1,7 @@
 """Pareto Q-Learning."""
 
 import numbers
+import time as time_module
 from typing import Callable, List, Optional
 
 import gymnasium as gym
@@ -85,7 +86,7 @@ class PQL(MOAgent):
 
         self.num_states = np.prod(self.env_shape)
         self.num_objectives = self.env.unwrapped.reward_space.shape[0]
-        self.counts = np.zeros((self.num_states, self.num_actions))
+        self.counts = np.zeros((self.num_states, self.num_actions), dtype=np.float64)
         self.non_dominated = [
             [{tuple(np.zeros(self.num_objectives))} for _ in range(self.num_actions)] for _ in range(self.num_states)
         ]
@@ -96,12 +97,108 @@ class PQL(MOAgent):
         self.experiment_name = experiment_name
         self.log = log
 
+        # Computational metrics tracking
+        self.comp_metrics = {
+            "global_step": [],
+            "step_time_ms": [],              # wall-clock time per step (ms)
+            "calc_nd_time_ms": [],           # time for calc_non_dominated (ms)
+            "get_q_set_time_ms": [],         # time for get_q_set calls (ms)
+            "total_nd_vectors": [],          # total non-dominated vectors across all (s,a)
+            "mean_nd_set_size": [],          # mean |D_{s,a}| across visited (s,a) pairs
+            "max_nd_set_size": [],           # max |D_{s,a}|
+            "nd_memory_bytes": [],           # memory of non_dominated structure (bytes)
+            "total_memory_bytes": [],        # total algorithm memory (bytes)
+            "visited_sa_pairs": [],          # number of (s,a) pairs visited so far
+        }
+        self._step_time_accum = 0.0
+        self._calc_nd_time_accum = 0.0
+        self._get_q_set_time_accum = 0.0
+        self._steps_since_last_log = 0
+
         if self.log:
             self.setup_wandb(
                 project_name=self.project_name,
                 experiment_name=self.experiment_name,
                 entity=wandb_entity,
             )
+
+    # ------------------------------------------------------------------ #
+    #  Computational metrics                                               #
+    # ------------------------------------------------------------------ #
+
+    def _compute_nd_stats(self):
+        """Compute non-dominated set statistics and memory in a single pass.
+        
+        Returns:
+            tuple: (total_nd_vectors, visited_sa_pairs, visited_nd_sizes, nd_memory_bytes)
+        """
+        # Python object overhead constants (CPython 3.10, 64-bit)
+        SIZEOF_LIST = 56
+        SIZEOF_LIST_PTR = 8
+        SIZEOF_SET_BASE = 216
+        SIZEOF_SET_ENTRY = 8
+        SIZEOF_TUPLE_BASE = 40
+        SIZEOF_FLOAT = 28
+        SIZEOF_TUPLE_PTR = 8
+
+        total_nd = 0
+        visited = 0
+        visited_nd_sizes = []
+        for s in range(self.num_states):
+            for a in range(self.num_actions):
+                sz = len(self.non_dominated[s][a])
+                total_nd += sz
+                if self.counts[s, a] > 0:
+                    visited += 1
+                    visited_nd_sizes.append(sz)
+
+        # Analytical memory estimate
+        num_sa = self.num_states * self.num_actions
+        mem = (SIZEOF_LIST + self.num_states * SIZEOF_LIST_PTR +
+               self.num_states * (SIZEOF_LIST + self.num_actions * SIZEOF_LIST_PTR) +
+               num_sa * SIZEOF_SET_BASE)
+        per_vector = (SIZEOF_SET_ENTRY + SIZEOF_TUPLE_BASE + 
+                      self.num_objectives * (SIZEOF_TUPLE_PTR + SIZEOF_FLOAT))
+        mem += total_nd * per_vector
+
+        return total_nd, visited, visited_nd_sizes, mem
+
+    def _collect_comp_metrics(self):
+        """Collect and store computational metrics at the current timestep."""
+        total_nd, visited, visited_nd_sizes, nd_mem = self._compute_nd_stats()
+
+        total_mem = (
+            nd_mem
+            + self.avg_reward.nbytes
+            + self.counts.nbytes
+        )
+
+        # Average timing over steps since last log
+        n = max(1, self._steps_since_last_log)
+        avg_step_time = self._step_time_accum / n * 1000  # ms
+        avg_calc_nd_time = self._calc_nd_time_accum / n * 1000
+        avg_get_q_set_time = self._get_q_set_time_accum / n * 1000
+
+        self.comp_metrics["global_step"].append(self.global_step)
+        self.comp_metrics["step_time_ms"].append(avg_step_time)
+        self.comp_metrics["calc_nd_time_ms"].append(avg_calc_nd_time)
+        self.comp_metrics["get_q_set_time_ms"].append(avg_get_q_set_time)
+        self.comp_metrics["total_nd_vectors"].append(total_nd)
+        self.comp_metrics["mean_nd_set_size"].append(
+            float(np.mean(visited_nd_sizes)) if visited_nd_sizes else 0.0
+        )
+        self.comp_metrics["max_nd_set_size"].append(
+            max(visited_nd_sizes) if visited_nd_sizes else 0
+        )
+        self.comp_metrics["nd_memory_bytes"].append(nd_mem)
+        self.comp_metrics["total_memory_bytes"].append(total_mem)
+        self.comp_metrics["visited_sa_pairs"].append(visited)
+
+        # Reset accumulators
+        self._step_time_accum = 0.0
+        self._calc_nd_time_accum = 0.0
+        self._get_q_set_time_accum = 0.0
+        self._steps_since_last_log = 0
 
     def get_config(self) -> dict:
         """Get the configuration dictionary.
@@ -163,9 +260,12 @@ class PQL(MOAgent):
         Returns:
             A set of Q vectors.
         """
+        t0 = time_module.perf_counter()
         nd_array = np.array(list(self.non_dominated[state][action]))
         q_array = self.avg_reward[state, action] + self.gamma * nd_array
-        return {tuple(vec) for vec in q_array}
+        result = {tuple(vec) for vec in q_array}
+        self._get_q_set_time_accum += time_module.perf_counter() - t0
+        return result
 
     def select_action(self, state: int, score_func: Callable):
         """Select an action in the current state.
@@ -249,20 +349,33 @@ class PQL(MOAgent):
             truncated = False
 
             while not (terminated or truncated) and self.global_step < total_timesteps:
+                step_start = time_module.perf_counter()
+
                 action = self.select_action(state, score_func)
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
-                #print(f"Step {self.global_step}: state={state}, action={action}, next_state={next_state}, reward={reward}")
+                print(f"Step {self.global_step}: state={state}, action={action}, next_state={next_state}, reward={reward}")
                 self.global_step += 1
                 if not isinstance(next_state, int):
                     next_state = int(np.ravel_multi_index(next_state, self.env_shape))
 
                 self.counts[state, action] += 1
+
+                # Timed: calc_non_dominated
+                t0 = time_module.perf_counter()
                 self.non_dominated[state][action] = self.calc_non_dominated(next_state)
+                self._calc_nd_time_accum += time_module.perf_counter() - t0
+
                 self.avg_reward[state, action] += (reward - self.avg_reward[state, action]) / self.counts[state, action]
                 print(f"Updated avg_reward for state {state}, action {action}: {self.avg_reward[state, action]}")
                 state = next_state
 
+                self._step_time_accum += time_module.perf_counter() - step_start
+                self._steps_since_last_log += 1
+
                 if self.log and self.global_step % log_every == 0:
+                    # Collect computational metrics before logging
+                    self._collect_comp_metrics()
+
                     wandb.log({"global_step": self.global_step})
                     pf = self._eval_all_policies(eval_env)
                     log_all_multi_policy_metrics(
@@ -281,6 +394,10 @@ class PQL(MOAgent):
                 0,
                 self.final_epsilon,
             )
+
+        # Final metrics collection
+        if self._steps_since_last_log > 0:
+            self._collect_comp_metrics()
 
         return self.get_local_pcs(state=0)
 
