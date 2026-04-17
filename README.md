@@ -37,7 +37,7 @@ Estimated execution time: **2-20 minutes** per run (depends on algorithm, hardwa
    cd gym-multi-k8s
    ```
 
-2. Run one of the scripts below using `python3 -m ...`.
+2. To retrieve **Multi-Objective Reinforcement Learning (MORL)** metrics, run one of the NOMS scripts below using `python3 -m ...`.
 
 ### NOMS Scripts (No-Power Variants)
 
@@ -71,6 +71,24 @@ Estimated execution time: **2-20 minutes** per run (depends on algorithm, hardwa
 - **MPMOQ-Learning (power-aware)**:
   ```bash
   python3 -m run_noms_algorithms.run_noms_mpmoqlearning
+  ```
+
+3. To retrieve **DQN/PPO DeepSets** metrics, run:
+
+```bash
+python3 run_fgcs.py
+```
+
+Default parameters are included to enable a first run. You can also provide custom parameters according to your needs, for example:
+
+- **DQN DeepSets (explicit parameters)**:
+  ```bash
+  python3 run_fgcs.py --alg dqn_deepsets --env_name karmada --num_clusters 4 --min_replicas 1 --max_replicas 16
+  ```
+
+- **PPO DeepSets**:
+  ```bash
+  python3 run_fgcs.py --alg ppo_deepsets --env_name karmada --num_clusters 4 --min_replicas 1 --max_replicas 16
   ```
 
 ## Notes
