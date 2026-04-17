@@ -244,8 +244,10 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         #print('Resetting environment...')
         #print(f'State: {np.array(self.get_state())}')
         #return np.array(self.get_state()), {}
-        state = self.get_state()
-        return tuple(state.flatten()), {}
+        #state = self.get_state()
+        #return tuple(state.flatten()), {}
+        state = self.get_state().astype(np.float32)
+        return state, {}
 
     def step(self, action):
         if self.current_step == 1:
@@ -299,8 +301,9 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
         #return np.array(ob), reward, self.episode_over, False, self.info
         
         # Use these lines with MOQLearning
-        obs = self.get_state()
-        return tuple(obs.flatten()), reward, self.episode_over, False, {}
+        obs = self.get_state().astype(np.float32)
+        return obs, reward, self.episode_over, False, self.info
+        #return tuple(obs.flatten()), reward, self.episode_over, False, {}
 
     # Apply the action taken by the agent
     def take_action(self, action):
@@ -878,7 +881,7 @@ class KarmadaSchedulingEnvMultiPower(gym.Env):
 
         return observation
         
-    def read_power_consumption(self, filename='./gym-multi-k8s/envs/kepler_power_consumption.csv'): 
+    def read_power_consumption(self, filename='./envs/kepler_power_consumption.csv'): 
         """
         Read power consumption from a file. We are using a CSV file with the following format:
         load,vWall,eCluster
