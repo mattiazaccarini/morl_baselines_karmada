@@ -73,10 +73,16 @@ Estimated execution time: **2-20 minutes** per run (depends on algorithm, hardwa
   python3 -m run_noms_algorithms.run_noms_mpmoqlearning
   ```
 
-3. To retrieve **DQN/PPO DeepSets** metrics, run:
+3. To retrieve **DQN/PPO DeepSets** metrics for no-power variants, run:
 
 ```bash
 python3 run_fgcs.py
+```
+
+Concerning the 4 objectives problem including the power objective, modify the 'env_name' parameter in the command:
+
+```bash
+python3 run_fgcs.py --env_name karmada_power
 ```
 
 Default parameters are included to enable a first run. You can also provide custom parameters according to your needs, for example:
