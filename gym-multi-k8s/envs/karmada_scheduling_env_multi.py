@@ -40,7 +40,7 @@ DEFAULT_CLUSTER_TYPES =  [{"type": "edge_tier_1", "cpu": 4.0, "mem": 1.0, "cost"
                          {"type": "cloud", "cpu": 8.0, "mem": 48.0, "cost": 64, "device": "vwall"}, # vwall
                          {"type": "cloud", "cpu": 8.0, "mem": 64.0, "cost": 72, "device": "ecluster"}] # eCluster
 
-DEFAULT_NUM_EPISODE_STEPS = 250
+DEFAULT_NUM_EPISODE_STEPS = 200
 
 # Defaults for latency
 MIN_DELAY = 1  # corresponds to 1ms

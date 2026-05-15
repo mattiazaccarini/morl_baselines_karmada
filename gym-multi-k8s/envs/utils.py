@@ -360,9 +360,12 @@ def save_obs_to_csv(file_name, timestamp, num_pods, desired_replicas, cpu_usage,
 def save_to_csv(file_name, episode, reward, ep_block_prob, ep_accepted_requests, ep_rejected_requests, ep_deploy_all, ffd, ffi, bf1b1, avg_latency,
                 avg_cost, avg_cpu_cluster_selected, gini, execution_time, metadata=None, write_header=True): # bf1b1, nf1b1
     metadata = metadata or {}
+    if metadata.get("write_results") is False:
+        return
     fields = [
         'run_id', 'alg', 'env_name', 'reward_function',
         'num_clusters', 'total_steps',
+        'min_replicas', 'max_replicas', 'power_objective',
         'episode',
         'episode_reward_total',
         'episode_block_probability',
@@ -386,6 +389,9 @@ def save_to_csv(file_name, episode, reward, ep_block_prob, ep_accepted_requests,
         'reward_function': metadata.get('reward_function'),
         'num_clusters': metadata.get('num_clusters'),
         'total_steps': metadata.get('total_steps'),
+        'min_replicas': metadata.get('min_replicas'),
+        'max_replicas': metadata.get('max_replicas'),
+        'power_objective': metadata.get('power_objective'),
         'episode': episode,
         'episode_reward_total': float("{:.2f}".format(reward)),
         'episode_block_probability': float("{:.2f}".format(ep_block_prob)),
@@ -404,17 +410,21 @@ def save_to_csv(file_name, episode, reward, ep_block_prob, ep_accepted_requests,
 
     file = open(file_name, 'a+', newline='')  # append
     with file:
+        file_empty = file.tell() == 0
         writer = csv.DictWriter(file, fieldnames=fields)
-        if write_header:
+        if write_header and file_empty:
             writer.writeheader()
         writer.writerow(row)
 
 def save_to_csv_power(file_name, episode, reward, ep_block_prob, ep_accepted_requests, ep_rejected_requests, ep_deploy_all, ffd, ffi, bf1b1, avg_latency,
                 avg_cost, avg_cpu_cluster_selected, gini, power_consumption, execution_time, metadata=None, write_header=True): # bf1b1, nf1b1
     metadata = metadata or {}
+    if metadata.get("write_results") is False:
+        return
     fields = [
         'run_id', 'alg', 'env_name', 'reward_function',
         'num_clusters', 'total_steps',
+        'min_replicas', 'max_replicas', 'power_objective',
         'episode',
         'episode_reward_total',
         'episode_block_probability',
@@ -439,6 +449,9 @@ def save_to_csv_power(file_name, episode, reward, ep_block_prob, ep_accepted_req
         'reward_function': metadata.get('reward_function'),
         'num_clusters': metadata.get('num_clusters'),
         'total_steps': metadata.get('total_steps'),
+        'min_replicas': metadata.get('min_replicas'),
+        'max_replicas': metadata.get('max_replicas'),
+        'power_objective': metadata.get('power_objective'),
         'episode': episode,
         'episode_reward_total': float("{:.2f}".format(reward)),
         'episode_block_probability': float("{:.2f}".format(ep_block_prob)),
@@ -458,8 +471,9 @@ def save_to_csv_power(file_name, episode, reward, ep_block_prob, ep_accepted_req
 
     file = open(file_name, 'a+', newline='')  # append
     with file:
+        file_empty = file.tell() == 0
         writer = csv.DictWriter(file, fieldnames=fields)
-        if write_header:
+        if write_header and file_empty:
             writer.writeheader()
         writer.writerow(row)
 

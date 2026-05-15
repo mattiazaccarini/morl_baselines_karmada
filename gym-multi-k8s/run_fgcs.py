@@ -37,8 +37,8 @@ parser.add_argument('--test_path', default='ppo_deepsets_env_karmada_num_cluster
                                            'mask_ppo_env_karmada_num_clusters_4_reward_risk_totalSteps_200000_run_1/'
                                            'mask_ppo_env_karmada_num_clusters_4_reward_risk_totalSteps_200000',
                     help='Testing path, ex: logs/model/test.zip')
-parser.add_argument('--steps', default=1000, help='Save model after X steps')
-parser.add_argument('--total_steps', default=1000, help='The total number of steps.')
+parser.add_argument('--steps', default=100000, help='Save model after X steps')
+parser.add_argument('--total_steps', default=100000, help='The total number of steps.')
 
 # TODO: add other arguments if needed
 # parser.add_argument('--k8s', default=False, action="store_true", help='K8s mode')
@@ -169,6 +169,7 @@ def get_env(env_name, num_clusters, reward_function, min_replicas, max_replicas,
         for i in range(8):
             env_metadata = dict(results_metadata or {})
             env_metadata["write_header"] = i == 0
+            env_metadata["write_results"] = i == 0
             env_fns.append(lambda env_metadata=env_metadata: KarmadaSchedulingEnvMultiLinearizedPower(
                 num_clusters=num_clusters,
                 arrival_rate_r=100,
@@ -256,6 +257,9 @@ def main():
         "num_clusters": num_clusters,
         "total_steps": total_steps,
         "run_id": run_id,
+        "min_replicas": min_replicas,
+        "max_replicas": max_replicas,
+        "power_objective": env_name == "karmada_power",
         "write_header": True,
     }
 
