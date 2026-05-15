@@ -1,5 +1,6 @@
 import logging
 import argparse
+from datetime import datetime
 import pandas as pd
 from matplotlib import pyplot as plt
 from stable_baselines3 import PPO, A2C
@@ -36,8 +37,8 @@ parser.add_argument('--test_path', default='ppo_deepsets_env_karmada_num_cluster
                                            'mask_ppo_env_karmada_num_clusters_4_reward_risk_totalSteps_200000_run_1/'
                                            'mask_ppo_env_karmada_num_clusters_4_reward_risk_totalSteps_200000',
                     help='Testing path, ex: logs/model/test.zip')
-parser.add_argument('--steps', default=200000, help='Save model after X steps')
-parser.add_argument('--total_steps', default=200000, help='The total number of steps.')
+parser.add_argument('--steps', default=1000, help='Save model after X steps')
+parser.add_argument('--total_steps', default=1000, help='The total number of steps.')
 
 # TODO: add other arguments if needed
 # parser.add_argument('--k8s', default=False, action="store_true", help='K8s mode')
@@ -86,7 +87,8 @@ def get_load_model(env, alg, tensorboard_log, load_path):
         logging.info('Invalid algorithm!')
 
 
-def get_env(env_name, num_clusters, reward_function, min_replicas, max_replicas):
+def get_env(env_name, num_clusters, reward_function, min_replicas, max_replicas,
+            file_results_name=None, results_metadata=None):
     envs = 0
 
     latency_weight = 0.33
@@ -98,20 +100,30 @@ def get_env(env_name, num_clusters, reward_function, min_replicas, max_replicas)
                                    episode_length=100,
                                    latency_weight=latency_weight, cost_weight=cost_weight, gini_weight=gini_weight,
                                    min_replicas=min_replicas, max_replicas=max_replicas,
-                                   reward_function=reward_function)
+                                   reward_function=reward_function,
+                                   file_results_name=file_results_name,
+                                   results_metadata=results_metadata)
         # For faster training!
         # otherwise just comment the following lines
 
         env.reset()
         _, _, _, info = env.step(0)
         info_keywords = tuple(info.keys())
-        env = SubprocVecEnv([lambda: KarmadaSchedulingEnv(num_clusters=num_clusters, arrival_rate_r=100,
-                                                          call_duration_r=1, episode_length=100,
-                                                          latency_weight=latency_weight, cost_weight=cost_weight,
-                                                          gini_weight=gini_weight,
-                                                          min_replicas=min_replicas, max_replicas=max_replicas,
-                                                          reward_function=reward_function)
-                             for i in range(1)])
+        env_fns = []
+        for i in range(1):
+            env_metadata = dict(results_metadata or {})
+            env_metadata["write_header"] = i == 0
+            env_fns.append(lambda env_metadata=env_metadata: KarmadaSchedulingEnv(
+                num_clusters=num_clusters, arrival_rate_r=100,
+                call_duration_r=1, episode_length=100,
+                latency_weight=latency_weight, cost_weight=cost_weight,
+                gini_weight=gini_weight,
+                min_replicas=min_replicas, max_replicas=max_replicas,
+                reward_function=reward_function,
+                file_results_name=file_results_name,
+                results_metadata=env_metadata
+            ))
+        env = SubprocVecEnv(env_fns)
 
         envs = VecMonitor(env, filename="vec_karmada_gym_results_", info_keywords=info_keywords)
 
@@ -142,24 +154,30 @@ def get_env(env_name, num_clusters, reward_function, min_replicas, max_replicas)
                  file_results_name=DEFAULT_FILE_NAME_RESULTS,
                  is_eval_env=False):
         """
-        env = KarmadaSchedulingEnvMultiLinearizedPower(num_clusters=num_clusters, 
-                                                       arrival_rate_r=100, 
+        env = KarmadaSchedulingEnvMultiLinearizedPower(num_clusters=num_clusters,
+                                                       arrival_rate_r=100,
                                                        call_duration_r=1,
                                                        episode_length=100,
-                                                       min_replicas=min_replicas, 
-                                                       max_replicas=max_replicas)
+                                                       min_replicas=min_replicas,
+                                                       max_replicas=max_replicas,
+                                                       file_results_name=file_results_name,
+                                                       results_metadata=results_metadata)
         env.reset()
         _, _, _, info = env.step(0)
         info_keywords = tuple(info.keys())
-        env = SubprocVecEnv(
-            [
-                lambda: KarmadaSchedulingEnvMultiLinearizedPower(num_clusters=num_clusters, 
-                                                                 arrival_rate_r=100,
-                                                                 call_duration_r=1, episode_length=100,
-                                                                 min_replicas=min_replicas, max_replicas=max_replicas)
-                for i in range(8)
-            ]
-        )
+        env_fns = []
+        for i in range(8):
+            env_metadata = dict(results_metadata or {})
+            env_metadata["write_header"] = i == 0
+            env_fns.append(lambda env_metadata=env_metadata: KarmadaSchedulingEnvMultiLinearizedPower(
+                num_clusters=num_clusters,
+                arrival_rate_r=100,
+                call_duration_r=1, episode_length=100,
+                min_replicas=min_replicas, max_replicas=max_replicas,
+                file_results_name=file_results_name,
+                results_metadata=env_metadata
+            ))
+        env = SubprocVecEnv(env_fns)
         envs = VecMonitor(env, info_keywords=info_keywords)
 
     else:
@@ -220,7 +238,29 @@ def main():
     steps = int(args.steps)
     total_steps = int(args.total_steps)
 
-    env = get_env(env_name, num_clusters, reward, min_replicas, max_replicas)
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_base = (
+        f"karmada_gym_results__alg_{alg}"
+        f"__env_{env_name}"
+        f"__reward_{reward}"
+        f"__clusters_{num_clusters}"
+        f"__replicas_{min_replicas}-{max_replicas}"
+        f"__steps_{total_steps}"
+        f"__run_{run_id}"
+    )
+
+    results_metadata = {
+        "alg": alg,
+        "env_name": env_name,
+        "reward_function": reward,
+        "num_clusters": num_clusters,
+        "total_steps": total_steps,
+        "run_id": run_id,
+        "write_header": True,
+    }
+
+    env = get_env(env_name, num_clusters, reward, min_replicas, max_replicas,
+                  file_results_name=results_base, results_metadata=results_metadata)
     print("env: {}".format(env))
 
     tensorboard_log = "results/" + env_name + "/" + reward + "/" + alg + "/"

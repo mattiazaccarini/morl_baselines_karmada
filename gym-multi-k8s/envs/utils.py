@@ -358,61 +358,110 @@ def save_obs_to_csv(file_name, timestamp, num_pods, desired_replicas, cpu_usage,
 
 
 def save_to_csv(file_name, episode, reward, ep_block_prob, ep_accepted_requests, ep_rejected_requests, ep_deploy_all, ffd, ffi, bf1b1, avg_latency,
-                avg_cost, avg_cpu_cluster_selected, gini, execution_time): # bf1b1, nf1b1
+                avg_cost, avg_cpu_cluster_selected, gini, execution_time, metadata=None, write_header=True): # bf1b1, nf1b1
+    metadata = metadata or {}
+    fields = [
+        'run_id', 'alg', 'env_name', 'reward_function',
+        'num_clusters', 'total_steps',
+        'episode',
+        'episode_reward_total',
+        'episode_block_probability',
+        'episode_requests_accepted',
+        'episode_requests_rejected',
+        'episode_deploy_all_count',
+        'episode_ffd_count',
+        'episode_ffi_count',
+        'episode_bf1b1_count',
+        'avg_latency_ms',
+        'avg_cost_units',
+        'avg_cpu_utilization_pct_selected',
+        'gini_load_distribution',
+        'episode_execution_time_s'
+    ]
+
+    row = {
+        'run_id': metadata.get('run_id'),
+        'alg': metadata.get('alg'),
+        'env_name': metadata.get('env_name'),
+        'reward_function': metadata.get('reward_function'),
+        'num_clusters': metadata.get('num_clusters'),
+        'total_steps': metadata.get('total_steps'),
+        'episode': episode,
+        'episode_reward_total': float("{:.2f}".format(reward)),
+        'episode_block_probability': float("{:.2f}".format(ep_block_prob)),
+        'episode_requests_accepted': float("{:.2f}".format(ep_accepted_requests)),
+        'episode_requests_rejected': float("{:.2f}".format(ep_rejected_requests)),
+        'episode_deploy_all_count': float("{:.2f}".format(ep_deploy_all)),
+        'episode_ffd_count': float("{:.2f}".format(ffd)),
+        'episode_ffi_count': float("{:.2f}".format(ffi)),
+        'episode_bf1b1_count': float("{:.2f}".format(bf1b1)),
+        'avg_latency_ms': float("{:.2f}".format(avg_latency)),
+        'avg_cost_units': float("{:.2f}".format(avg_cost)),
+        'avg_cpu_utilization_pct_selected': float("{:.2f}".format(avg_cpu_cluster_selected)),
+        'gini_load_distribution': float("{:.2f}".format(gini)),
+        'episode_execution_time_s': float("{:.2f}".format(execution_time))
+    }
+
     file = open(file_name, 'a+', newline='')  # append
-    # file = open(file_name, 'w', newline='')
     with file:
-        fields = ['episode', 'reward', 'ep_block_prob', 'ep_accepted_requests', 'ep_rejected_requests', 'ep_deploy_all',
-                  'ep_ffd', 'ep_ffi', 'ep_bf1b1', 'avg_latency', 'avg_cost',
-                  'avg_cpu_cluster_selected', 'gini', 'execution_time'] # 'ep_bf1b1', 'ep_ffi', 'ep_nf1b1'
         writer = csv.DictWriter(file, fieldnames=fields)
-        # writer.writeheader()
-        writer.writerow(
-            {'episode': episode,
-             'reward': float("{:.2f}".format(reward)),
-             'ep_block_prob': float("{:.2f}".format(ep_block_prob)),
-             'ep_accepted_requests': float("{:.2f}".format(ep_accepted_requests)),
-             'ep_rejected_requests': float("{:.2f}".format(ep_rejected_requests)),
-             'ep_deploy_all': float("{:.2f}".format(ep_deploy_all)),
-             'ep_ffd': float("{:.2f}".format(ffd)),
-             'ep_ffi': float("{:.2f}".format(ffi)),
-             'ep_bf1b1': float("{:.2f}".format(bf1b1)),
-             # 'ep_nf1b1': float("{:.2f}".format(nf1b1)),
-             'avg_latency': float("{:.2f}".format(avg_latency)),
-             'avg_cost': float("{:.2f}".format(avg_cost)),
-             'avg_cpu_cluster_selected': float("{:.2f}".format(avg_cpu_cluster_selected)),
-             'gini': float("{:.2f}".format(gini)),
-             'execution_time': float("{:.2f}".format(execution_time))}
-        )
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
 
 def save_to_csv_power(file_name, episode, reward, ep_block_prob, ep_accepted_requests, ep_rejected_requests, ep_deploy_all, ffd, ffi, bf1b1, avg_latency,
-                avg_cost, avg_cpu_cluster_selected, gini, power_consumption, execution_time): # bf1b1, nf1b1
+                avg_cost, avg_cpu_cluster_selected, gini, power_consumption, execution_time, metadata=None, write_header=True): # bf1b1, nf1b1
+    metadata = metadata or {}
+    fields = [
+        'run_id', 'alg', 'env_name', 'reward_function',
+        'num_clusters', 'total_steps',
+        'episode',
+        'episode_reward_total',
+        'episode_block_probability',
+        'episode_requests_accepted',
+        'episode_requests_rejected',
+        'episode_deploy_all_count',
+        'episode_ffd_count',
+        'episode_ffi_count',
+        'episode_bf1b1_count',
+        'avg_latency_ms',
+        'avg_cost_units',
+        'avg_cpu_utilization_pct_selected',
+        'gini_load_distribution',
+        'total_power_consumption',
+        'episode_execution_time_s'
+    ]
+
+    row = {
+        'run_id': metadata.get('run_id'),
+        'alg': metadata.get('alg'),
+        'env_name': metadata.get('env_name'),
+        'reward_function': metadata.get('reward_function'),
+        'num_clusters': metadata.get('num_clusters'),
+        'total_steps': metadata.get('total_steps'),
+        'episode': episode,
+        'episode_reward_total': float("{:.2f}".format(reward)),
+        'episode_block_probability': float("{:.2f}".format(ep_block_prob)),
+        'episode_requests_accepted': float("{:.2f}".format(ep_accepted_requests)),
+        'episode_requests_rejected': float("{:.2f}".format(ep_rejected_requests)),
+        'episode_deploy_all_count': float("{:.2f}".format(ep_deploy_all)),
+        'episode_ffd_count': float("{:.2f}".format(ffd)),
+        'episode_ffi_count': float("{:.2f}".format(ffi)),
+        'episode_bf1b1_count': float("{:.2f}".format(bf1b1)),
+        'avg_latency_ms': float("{:.2f}".format(avg_latency)),
+        'avg_cost_units': float("{:.2f}".format(avg_cost)),
+        'avg_cpu_utilization_pct_selected': float("{:.2f}".format(avg_cpu_cluster_selected)),
+        'gini_load_distribution': float("{:.2f}".format(gini)),
+        'total_power_consumption': float("{:.2f}".format(power_consumption)),
+        'episode_execution_time_s': float("{:.2f}".format(execution_time))
+    }
+
     file = open(file_name, 'a+', newline='')  # append
-    # file = open(file_name, 'w', newline='')
     with file:
-        fields = ['episode', 'reward', 'ep_block_prob', 'ep_accepted_requests', 'ep_rejected_requests', 'ep_deploy_all',
-                  'ep_ffd', 'ep_ffi', 'ep_bf1b1', 'avg_latency', 'avg_cost',
-                  'avg_cpu_cluster_selected', 'gini', 'power_consumption', 'execution_time'] # 'ep_bf1b1', 'ep_ffi', 'ep_nf1b1'
         writer = csv.DictWriter(file, fieldnames=fields)
-        # writer.writeheader()
-        writer.writerow(
-            {'episode': episode,
-             'reward': float("{:.2f}".format(reward)),
-             'ep_block_prob': float("{:.2f}".format(ep_block_prob)),
-             'ep_accepted_requests': float("{:.2f}".format(ep_accepted_requests)),
-             'ep_rejected_requests': float("{:.2f}".format(ep_rejected_requests)),
-             'ep_deploy_all': float("{:.2f}".format(ep_deploy_all)),
-             'ep_ffd': float("{:.2f}".format(ffd)),
-             'ep_ffi': float("{:.2f}".format(ffi)),
-             'ep_bf1b1': float("{:.2f}".format(bf1b1)),
-             # 'ep_nf1b1': float("{:.2f}".format(nf1b1)),
-             'avg_latency': float("{:.2f}".format(avg_latency)),
-             'avg_cost': float("{:.2f}".format(avg_cost)),
-             'avg_cpu_cluster_selected': float("{:.2f}".format(avg_cpu_cluster_selected)),
-             'gini': float("{:.2f}".format(gini)),
-             'power_consumption': float("{:.2f}".format(power_consumption)),
-             'execution_time': float("{:.2f}".format(execution_time))}
-        )
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
 
 def save_to_csv_multi(file_name, episode, ep_accepted_requests, ep_rejected_requests, avg_latency,
                 avg_cost, avg_cpu_cluster_selected, gini, execution_time):

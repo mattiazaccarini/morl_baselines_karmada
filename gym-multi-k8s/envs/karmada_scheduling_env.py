@@ -99,7 +99,8 @@ class KarmadaSchedulingEnv(gym.Env):
                  min_replicas=MIN_REPLICAS,
                  max_replicas=MAX_REPLICAS,
                  seed=SEED,
-                 file_results_name=DEFAULT_FILE_NAME_RESULTS):
+                 file_results_name=DEFAULT_FILE_NAME_RESULTS,
+                 results_metadata=None):
 
         # Define action and observation space
         super(KarmadaSchedulingEnv, self).__init__()
@@ -243,6 +244,8 @@ class KarmadaSchedulingEnv(gym.Env):
         self.time_start = 0
         self.execution_time = 0
         self.episode_count = 0
+        self.results_metadata = results_metadata or {}
+        self.write_header = bool(self.results_metadata.get("write_header", True))
         self.file_results = file_results_name + ".csv"
         self.obs_csv = self.name + "_obs.csv"
 
@@ -418,7 +421,9 @@ class KarmadaSchedulingEnv(gym.Env):
                         mean(self.avg_cost),
                         mean(self.avg_cpu_usage_percentage_cluster_selected),
                         gini,
-                        self.execution_time)
+                        self.execution_time,
+                        metadata=self.results_metadata,
+                        write_header=self.write_header)
 
         # return ob, reward, self.episode_over, self.info
         return np.array(ob), reward, self.episode_over, self.info

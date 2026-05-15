@@ -16,20 +16,46 @@ TOTAL_TIMESTEPS = 30000
 EVAL_FREQ = 500
 
 if __name__ == "__main__":
-    env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, max_replicas=16, file_results_name="karmada_gym_multi_train_results", is_eval_env=False)
-    env = DiscretizerWrapper(env, n_bins=8) 
-  
-    eval_env = mo_gymnasium.make("karmada-scheduling-multi-v0", num_clusters=4, min_replicas=1, max_replicas=16, file_results_name="karmada_gym_multi_eval_results", is_eval_env=True)
-    eval_env = DiscretizerWrapper(eval_env, n_bins=8)
+    number_of_clusters = [8]
+    replicas = [4, 6, 8]
 
-    agent = GeometricPQL(
-        env,
-        gamma=GAMMA,
-        initial_epsilon=1.0,
-        ref_point=np.array([0.0, 0.0, 0.0]),
-        epsilon_decay_steps=10000,
-        final_epsilon=0.1,
-        log=True, # use weights and biases to see the results!
-    )
+    for num_clusters in number_of_clusters:
+        for num_replicas in replicas:
+            min_replicas = 1
+            max_replicas = num_replicas
 
-    agent.train(total_timesteps=TOTAL_TIMESTEPS, eval_env=eval_env, log_every=5000)
+            env = mo_gymnasium.make(
+                "karmada-scheduling-multi-v2",
+                num_clusters=num_clusters,
+                min_replicas=min_replicas,
+                max_replicas=max_replicas,
+                file_results_name=(
+                    f"karmada_gym_c{num_clusters}_r{num_replicas}_results_geo_pql_{time.time()}_nopower"
+                ),
+                is_eval_env=False,
+            )
+            env = DiscretizerWrapper(env, n_bins=8)
+
+            eval_env = mo_gymnasium.make(
+                "karmada-scheduling-multi-v2",
+                num_clusters=num_clusters,
+                min_replicas=min_replicas,
+                max_replicas=max_replicas,
+                file_results_name=(
+                    f"karmada_gym_c{num_clusters}_r{num_replicas}_results_eval_geo_pql_{time.time()}_nopower"
+                ),
+                is_eval_env=True,
+            )
+            eval_env = DiscretizerWrapper(eval_env, n_bins=8)
+
+            agent = GeometricPQL(
+                env,
+                gamma=GAMMA,
+                initial_epsilon=1.0,
+                ref_point=np.array([0.0, 0.0, 0.0]),
+                epsilon_decay_steps=10000,
+                final_epsilon=0.1,
+                log=True, # use weights and biases to see the results!
+            )
+
+            agent.train(total_timesteps=TOTAL_TIMESTEPS, eval_env=eval_env, log_every=5000)

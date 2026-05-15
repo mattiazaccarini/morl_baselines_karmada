@@ -107,7 +107,8 @@ class KarmadaSchedulingEnvMultiLinearizedPower(gym.Env):
                  min_replicas=MIN_REPLICAS,
                  max_replicas=MAX_REPLICAS,
                  seed=SEED,
-                 file_results_name=DEFAULT_FILE_NAME_RESULTS):
+                 file_results_name=DEFAULT_FILE_NAME_RESULTS,
+                 results_metadata=None):
 
         # Define action and observation space
         super(KarmadaSchedulingEnvMultiLinearizedPower, self).__init__()
@@ -271,6 +272,8 @@ class KarmadaSchedulingEnvMultiLinearizedPower(gym.Env):
         self.time_start = 0
         self.execution_time = 0
         self.episode_count = 0
+        self.results_metadata = results_metadata or {}
+        self.write_header = bool(self.results_metadata.get("write_header", True))
         self.file_results = file_results_name + ".csv"
         self.obs_csv = self.name + "_obs.csv"
 
@@ -450,7 +453,9 @@ class KarmadaSchedulingEnvMultiLinearizedPower(gym.Env):
                         mean(self.avg_cpu_usage_percentage_cluster_selected),
                         gini,
                         self.total_power_consumption,
-                        self.execution_time)
+                        self.execution_time,
+                        metadata=self.results_metadata,
+                        write_header=self.write_header)
 
         # return ob, reward, self.episode_over, self.info
         return np.array(ob), reward, self.episode_over, self.info
@@ -1503,7 +1508,7 @@ class KarmadaSchedulingEnvMultiLinearizedPower(gym.Env):
         logging.info('[Next Request]: Name: {} | Replicas: {}'.format(self.deployment_request.name,
                                                                       self.deployment_request.num_replicas))
 
-    def read_power_consumption(self, filename='./gym-multi-k8s/envs/kepler_power_consumption.csv'): 
+    def read_power_consumption(self, filename='./envs/kepler_power_consumption.csv'): 
         """
         Read power consumption from a file. We are using a CSV file with the following format:
         load,vWall,eCluster
