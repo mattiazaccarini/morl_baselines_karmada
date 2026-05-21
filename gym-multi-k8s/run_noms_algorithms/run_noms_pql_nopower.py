@@ -14,8 +14,8 @@ import time
 num_envs = 4
 
 GAMMA = 0.99
-TOTAL_TIMESTEPS = 30000
-EVAL_FREQ = 500
+TOTAL_TIMESTEPS = 10000
+EVAL_FREQ = 1000
 
 if __name__ == "__main__":
     number_of_clusters = [8]
@@ -57,4 +57,4 @@ if __name__ == "__main__":
                 log=True,  # use weights and biases to see the results!
             )
 
-            agent.train(total_timesteps=TOTAL_TIMESTEPS, eval_env=eval_env, log_every=5000)
+            agent.train(total_timesteps=TOTAL_TIMESTEPS, eval_env=eval_env, log_every=1000)

@@ -10,7 +10,7 @@ import numpy as np
 num_envs = 4
 
 GAMMA = 0.9
-TOTAL_TIMESTEPS = 20_000
+TOTAL_TIMESTEPS = 10_000
 EVAL_FREQ = 1000
 
 def scalarization_fn(v, w):
